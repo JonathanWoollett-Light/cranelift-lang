@@ -4,7 +4,11 @@ Goal: As much compile time analysis as possible.
 
 E.g.
 
-`cargo test -- --nocapture`:
+`cargo test -- --nocapture` with `example-input` outputs
+
+![Example output code with compile time highlights](./example-output.png)
+
+Where `example-input` is:
 ```
 a = 2 [2]
 b = 3 [3]

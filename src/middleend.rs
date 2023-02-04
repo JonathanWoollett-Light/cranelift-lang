@@ -209,7 +209,7 @@ mod tests {
     use super::*;
     #[test]
     fn checker() {
-        let string = std::fs::read_to_string("./test.bl").unwrap();
+        let string = std::fs::read_to_string("./example-input").unwrap();
         let statements = parser::statements(&string, 0).unwrap();
         println!("statements: {statements:?}");
 

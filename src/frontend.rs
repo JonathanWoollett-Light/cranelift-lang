@@ -411,8 +411,8 @@ mod tests {
     // }
     // #[test]
     // fn read_file() {
-    //     // let file = std::fs::File::open("../test.bl").unwrap();
-    //     let string = std::fs::read_to_string("./test.bl").unwrap();
+    //     // let file = std::fs::File::open("../example-input").unwrap();
+    //     let string = std::fs::read_to_string("./example-input").unwrap();
     //     let statements = parser::statements(&string, 0).unwrap();
     //     println!("statements: {statements:?}");
     // }
