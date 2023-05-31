@@ -50,7 +50,7 @@ impl Call {
             self.ident.print(n).yellow(),
             self.args
                 .iter()
-                .map(|a| format!("{},",a.print(n)))
+                .map(|a| format!("{},", a.print(n)))
                 .collect::<String>()
         )
     }
@@ -114,6 +114,7 @@ pub struct Assign {
     pub expr: Expression,
 }
 impl Assign {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!("{} = {}", self.ident.print(n), self.expr.print(n),)
     }
@@ -125,6 +126,7 @@ pub struct If {
     pub inner: Option<Box<Statement>>,
 }
 impl If {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
             "{} {}{}",
@@ -150,7 +152,7 @@ impl Value {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         match self {
-            Self::Unknown => "?".truecolor(255,165,0).to_string(),
+            Self::Unknown => "?".truecolor(255, 165, 0).to_string(),
             Self::Literal(l) => l.print(n),
             Self::Ident(i) => i.print(n),
             Self::Call(c) => c.print(n),
@@ -198,6 +200,7 @@ pub struct Statement {
 }
 impl Statement {
     pub const INDENT: &str = "    ";
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
             "\n{}{}{}",
@@ -223,6 +226,7 @@ pub enum StatementType {
     Function(Function),
 }
 impl StatementType {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         match self {
             Self::Assign(a) => a.print(n),
@@ -239,6 +243,7 @@ impl StatementType {
 #[derive(Debug, Clone)]
 pub struct Unary(Value);
 impl Unary {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         self.0.print(n)
     }
@@ -251,6 +256,7 @@ pub struct Binary {
     rhs: Value,
 }
 impl Binary {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
             "{} {} {}",
@@ -278,6 +284,7 @@ impl Op {
             Self::Div => "/",
         })
     }
+    #[must_use]
     pub fn run(&self, a: usize, b: usize) -> usize {
         match self {
             Self::Add => a + b,
@@ -293,7 +300,7 @@ peg::parser!(pub grammar parser() for str {
         = indent(n) a:statement_type(n) "\n"* b:statements(n) {
             Some(Statement {
                 block: a,
-                next: b.map(|x|Box::new(x))
+                next: b.map(Box::new)
             })
         }
             / { None }
@@ -311,12 +318,12 @@ peg::parser!(pub grammar parser() for str {
         = "if" _ cond:value() "\n" then:statements(n+1) {
             If {
                 cond,
-                inner: then.map(|x|Box::new(x))
+                inner: then.map(Box::new)
             }
         }
 
     rule simple_loop(n:usize) -> Loop
-        = "loop" "\n" s:statements(n+1) { Loop(s.map(|x|Box::new(x))) }
+        = "loop" "\n" s:statements(n+1) { Loop(s.map(Box::new)) }
 
     rule assignment(n:usize) -> Assign
         = ident:identifier() _ "=" _ expr:expression() { Assign { ident, expr } }
@@ -340,7 +347,7 @@ peg::parser!(pub grammar parser() for str {
 
     rule function(n:usize) -> Function
         = "def" _ ident:identifier() "(" args:((arg:identifier() "," {arg})*) ")" "\n"
-        s:statements(n+1) { Function { ident, args, inner: s.map(|x|Box::new(x))} }
+        s:statements(n+1) { Function { ident, args, inner: s.map(Box::new)} }
 
     rule op() -> Op
         = "+" { Op::Add }
@@ -362,63 +369,12 @@ peg::parser!(pub grammar parser() for str {
 
 #[cfg(test)]
 mod tests {
-    // use std::collections::HashMap;
-
     use super::*;
 
     #[test]
     fn simple() {
         let string = std::fs::read_to_string("./example-input.txt").unwrap();
         let statement = parser::statements(&string, 0).unwrap().unwrap();
-        // println!("statements: {statements:?}");
         println!("{}", statement.print(0));
     }
-
-    // use super::*;
-    // #[test]
-    // fn simple_loop_test() {
-    //     let out = parser::statement(r#"c = 2"#).unwrap();
-    //     println!("statement: {out:?}");
-    //     let out = parser::statements(r#"c = 2 b = 2"#).unwrap();
-    //     println!("statements: {out:?}");
-    //     let out = parser::statements(r#"
-    //         c = 2
-    //         b = 2
-    //     "#).unwrap();
-    //     println!("statements: {out:?}");
-    //     let out = parser::statements(r#"
-    //         a = 2
-    //         if (2==3){
-    //             c= 2
-    //             b = 3
-    //         } else {
-    //         }
-    //     "#).unwrap();
-    //     println!("statements: {out:?}");
-    // }
-    // #[test]
-    // fn read_file() {
-    //     // let file = std::fs::File::open("../example-input").unwrap();
-    //     let string = std::fs::read_to_string("./example-input").unwrap();
-    //     let statements = parser::statements(&string, 0).unwrap();
-    //     println!("statements: {statements:?}");
-    // }
-    // #[test]
-    // fn function_test() {
-    //     let out = parser::function(r#"
-    //         fn foo(a, b) {
-    //             c = if a {
-    //                 if b {
-    //                     30
-    //                 } else {
-    //                     40
-    //                 }
-    //             } else {
-    //                 50
-    //             }
-    //             c = c + 2
-    //         }
-    //     "#).unwrap();
-    //     println!("function_test: {out:?}");
-    // }
 }
