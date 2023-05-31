@@ -16,4 +16,4 @@ A visualization I use for illustrate the abstract syntax tree:
 
 ![Example output code with compile time highlights](./example-output.png)
 
-Where `example-input` is [./example-input.txt].
+See [`example-input`](./example-input.txt).

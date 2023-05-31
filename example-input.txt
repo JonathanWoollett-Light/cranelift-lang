@@ -4,24 +4,19 @@ c = a + b
 d = ?
 if 1
     d = 4
-
 loop
     a = a + c
     if 1
         break
-
 def triple_add(a,b,c,)
     one = a + b
     two = one + c
     if 0
         two = triple_add(two,two,two,)
     return two
-
 a = triple_add(a,1,b,)
-
 e = c + d
 e = e + a
-
 if 1
     return 0
 return 1

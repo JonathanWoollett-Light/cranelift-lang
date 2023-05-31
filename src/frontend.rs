@@ -50,8 +50,7 @@ impl Call {
             self.ident.print(n).yellow(),
             self.args
                 .iter()
-                .map(|a| a.print(n))
-                .intersperse(String::from(","))
+                .map(|a| format!("{},",a.print(n)))
                 .collect::<String>()
         )
     }
@@ -63,7 +62,7 @@ impl Loop {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
-            "{}\n{}",
+            "{}{}",
             KeyWord::Loop,
             if let Some(s) = &self.0 {
                 s.print(n + 1)
@@ -84,7 +83,7 @@ impl Function {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
-            "{} {}({})\n{}",
+            "{} {}({}){}",
             KeyWord::Def,
             self.ident.print(n).yellow(),
             self.args
@@ -128,7 +127,7 @@ pub struct If {
 impl If {
     pub fn print(&self, n: usize) -> String {
         format!(
-            "{} {}\n{}",
+            "{} {}{}",
             KeyWord::If,
             self.cond.print(n),
             if let Some(s) = &self.inner {
@@ -201,7 +200,7 @@ impl Statement {
     pub const INDENT: &str = "    ";
     pub fn print(&self, n: usize) -> String {
         format!(
-            "{}{}\n{}",
+            "\n{}{}{}",
             Self::INDENT.repeat(n),
             self.block.print(n),
             if let Some(s) = &self.next {
@@ -369,7 +368,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        let string = std::fs::read_to_string("./example-input").unwrap();
+        let string = std::fs::read_to_string("./example-input.txt").unwrap();
         let statement = parser::statements(&string, 0).unwrap().unwrap();
         // println!("statements: {statements:?}");
         println!("{}", statement.print(0));
