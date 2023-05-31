@@ -2,90 +2,8 @@ use colored::Colorize;
 use std::fmt;
 use std::string::ToString;
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct ExprLit(pub String);
-impl ExprLit {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        format!("{}", self.0.blue())
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct ExprIdent(pub String);
-impl ExprIdent {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        self.0.to_string()
-    }
-}
-
+/// Keyword enum to ensure consistency
 #[derive(Debug, Clone)]
-pub struct ExprCond {
-    pub lhs: Value,
-    pub cmp: Cmp,
-    pub rhs: Value,
-}
-impl ExprCond {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{} {} {}",
-            self.lhs.print(n),
-            self.cmp.print(n),
-            self.rhs.print(n)
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExprBreak;
-impl ExprBreak {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        KeyWord::Break.to_string()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ExprCall {
-    pub ident: ExprIdent,
-    pub args: Vec<Value>,
-}
-
-impl ExprCall {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{}({})",
-            self.ident.print(n).yellow(),
-            self.args
-                .iter()
-                .map(|a| a.print(n))
-                .intersperse(String::from(","))
-                .collect::<String>()
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct ExprLoop(pub Vec<Statement>);
-impl ExprLoop {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{}\n{}",
-            KeyWord::Loop,
-            self.0
-                .iter()
-                .map(|x| format!("{}{}\n", "\t".repeat(n + 1), x.print(n + 1)))
-                .collect::<String>()
-        )
-    }
-}
-
-pub type ExprBinary = (Value, Op, Value);
-
 pub enum KeyWord {
     Def,
     If,
@@ -110,13 +28,59 @@ impl fmt::Display for KeyWord {
     }
 }
 
-#[derive(Debug)]
-pub struct ExprFn {
-    pub ident: ExprIdent,
-    pub args: Vec<ExprIdent>,
-    pub statements: Vec<Statement>,
+#[derive(Debug, Clone)]
+pub struct Break;
+impl Break {
+    #[must_use]
+    pub fn print(&self, _n: usize) -> String {
+        KeyWord::Break.to_string()
+    }
 }
-impl ExprFn {
+
+#[derive(Debug, Clone)]
+pub struct Call {
+    pub ident: Ident,
+    pub args: Vec<Value>,
+}
+impl Call {
+    #[must_use]
+    pub fn print(&self, n: usize) -> String {
+        format!(
+            "{}({})",
+            self.ident.print(n).yellow(),
+            self.args
+                .iter()
+                .map(|a| a.print(n))
+                .intersperse(String::from(","))
+                .collect::<String>()
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Loop(Option<Box<Statement>>);
+impl Loop {
+    #[must_use]
+    pub fn print(&self, n: usize) -> String {
+        format!(
+            "{}\n{}",
+            KeyWord::Loop,
+            if let Some(s) = &self.0 {
+                s.print(n + 1)
+            } else {
+                String::new()
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub ident: Ident,
+    pub args: Vec<Ident>,
+    pub inner: Option<Box<Statement>>,
+}
+impl Function {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
@@ -125,245 +89,259 @@ impl ExprFn {
             self.ident.print(n).yellow(),
             self.args
                 .iter()
-                .map(|x| x.print(n))
-                .intersperse(String::from(","))
+                .map(|x| format!("{},", x.print(n)))
                 .collect::<String>(),
-            self.statements
-                .iter()
-                .map(|x| format!("{}{}\n", "\t".repeat(n + 1), x.print(n + 1)))
-                .collect::<String>()
+            if let Some(s) = &self.inner {
+                s.print(n + 1)
+            } else {
+                String::new()
+            }
         )
     }
 }
 
-#[derive(Debug)]
-pub struct ExprReturn(pub Value);
-impl ExprReturn {
+#[derive(Debug, Clone)]
+pub struct Return(pub Value);
+impl Return {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!("{} {}", KeyWord::Return, self.0.print(n))
     }
 }
 
-use std::cell::RefCell;
-
-#[derive(Debug)]
-pub struct ExprAssign {
-    pub ident: ExprIdent,
-    pub assign: Expr,
-    pub val: RefCell<Vec<Option<usize>>>,
+#[derive(Debug, Clone)]
+pub struct Assign {
+    pub ident: Ident,
+    pub expr: Expression,
 }
-impl ExprAssign {
-    fn new(ident: ExprIdent, assign: Expr) -> Self {
-        Self {
-            ident,
-            assign,
-            val: RefCell::new(Vec::new()),
-        }
+impl Assign {
+    pub fn print(&self, n: usize) -> String {
+        format!("{} = {}", self.ident.print(n), self.expr.print(n),)
     }
 }
 
-impl ExprAssign {
+#[derive(Debug, Clone)]
+pub struct If {
+    pub cond: Value,
+    pub inner: Option<Box<Statement>>,
+}
+impl If {
     pub fn print(&self, n: usize) -> String {
         format!(
-            "{} = {} {}",
-            self.ident.print(n),
-            self.assign.print(n),
-            format!(
-                "[{}]",
-                self.val
-                    .borrow()
-                    .iter()
-                    .map(|x| x.map(|x| x.to_string()).unwrap_or(String::from("?")))
-                    .intersperse(String::from(","))
-                    .collect::<String>()
-            )
-            .black()
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct ExprIf {
-    pub cond: ExprCond,
-    pub then: Vec<Statement>,
-    pub val: RefCell<Vec<Option<bool>>>,
-}
-impl ExprIf {
-    fn new(cond: ExprCond, then: Vec<Statement>) -> Self {
-        Self {
-            cond,
-            then,
-            val: RefCell::new(Vec::new()),
-        }
-    }
-
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{} {} {}\n{}",
+            "{} {}\n{}",
             KeyWord::If,
             self.cond.print(n),
-            format!(
-                "[{}]",
-                self.val
-                    .borrow()
-                    .iter()
-                    .map(|x| x.map(|y| y.to_string()).unwrap_or(String::from("?")))
-                    .intersperse(String::from(","))
-                    .collect::<String>()
-            )
-            .black(),
-            self.then
-                .iter()
-                .map(|x| format!("{}{}", "\t".repeat(n + 1), x.print(n + 1)))
-                .collect::<String>(),
+            if let Some(s) = &self.inner {
+                s.print(n + 1)
+            } else {
+                String::new()
+            }
         )
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Cmp {
-    Gt,
-    Lt,
-    Eq,
+pub enum Value {
+    Unknown,
+    Literal(Literal),
+    Ident(Ident),
+    Call(Call),
 }
-impl Cmp {
+impl Value {
     #[must_use]
-    pub fn print(&self, _n: usize) -> String {
+    pub fn print(&self, n: usize) -> String {
         match self {
-            Self::Gt => ">",
-            Self::Lt => "<",
-            Self::Eq => "==",
+            Self::Unknown => String::from("?"),
+            Self::Literal(l) => l.print(n),
+            Self::Ident(i) => i.print(n),
+            Self::Call(c) => c.print(n),
         }
-        .to_string()
     }
 }
 
-#[derive(Debug)]
-pub enum Statement {
-    Assign(ExprAssign),
-    Loop(ExprLoop),
-    If(ExprIf),
-    Call(ExprCall),
-    Break(ExprBreak),
-    Function(ExprFn),
-    Return(ExprReturn),
+#[derive(Debug, Clone)]
+pub struct Literal(i32);
+impl Literal {
+    #[must_use]
+    pub fn print(&self, _n: usize) -> String {
+        self.0.to_string().blue().to_string()
+    }
 }
 
-impl Statement {
+#[derive(Debug, Clone)]
+pub struct Ident(String);
+impl Ident {
+    #[must_use]
+    pub fn print(&self, _n: usize) -> String {
+        self.0.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Expression {
+    Unary(Unary),
+    Binary(Binary),
+}
+impl Expression {
+    #[must_use]
     pub fn print(&self, n: usize) -> String {
         match self {
-            Self::Assign(l) => l.print(n),
+            Self::Unary(x) => x.print(n),
+            Self::Binary(x) => x.print(n),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Statement {
+    block: StatementType,
+    next: Option<Box<Statement>>,
+}
+impl Statement {
+    pub const INDENT: &str = "    ";
+    pub fn print(&self, n: usize) -> String {
+        format!(
+            "{}{}\n{}",
+            Self::INDENT.repeat(n),
+            self.block.print(n),
+            if let Some(s) = &self.next {
+                s.print(n)
+            } else {
+                String::new()
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum StatementType {
+    Loop(Loop),
+    If(If),
+    Return(Return),
+    Break(Break),
+    Assign(Assign),
+    Call(Call),
+    Function(Function),
+}
+impl StatementType {
+    pub fn print(&self, n: usize) -> String {
+        match self {
+            Self::Assign(a) => a.print(n),
             Self::Loop(l) => l.print(n),
             Self::If(i) => i.print(n),
             Self::Call(c) => c.print(n),
             Self::Break(b) => b.print(n),
-            Self::Function(fi) => fi.print(n),
+            Self::Function(f) => f.print(n),
             Self::Return(r) => r.print(n),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Value {
-    Literal(ExprLit),
-    Identifier(ExprIdent),
-    Call(ExprCall),
-}
-
-impl Value {
-    #[must_use]
+pub struct Unary(Value);
+impl Unary {
     pub fn print(&self, n: usize) -> String {
-        match self {
-            Self::Literal(l) => l.print(n),
-            Self::Identifier(i) => i.print(n),
-            Self::Call(c) => c.print(n),
-        }
+        self.0.print(n)
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr {
-    Unary(Value),
-    Binary(ExprBinary),
+pub struct Binary {
+    lhs: Value,
+    op: Op,
+    rhs: Value,
 }
-
-impl Expr {
-    #[must_use]
+impl Binary {
     pub fn print(&self, n: usize) -> String {
-        match self {
-            Self::Unary(v) => v.print(n),
-            Self::Binary((a, op, b)) => format!("{} {} {}", a.print(n), op.print(n), b.print(n)),
-        }
+        format!(
+            "{} {} {}",
+            self.lhs.print(n),
+            self.op.print(n),
+            self.rhs.print(n)
+        )
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Op {
     Add,
     Sub,
     Mul,
     Div,
 }
-
 impl Op {
     #[must_use]
     pub fn print(&self, _n: usize) -> String {
-        match self {
+        String::from(match self {
             Self::Add => "+",
             Self::Sub => "-",
             Self::Mul => "*",
             Self::Div => "/",
+        })
+    }
+    pub fn run(&self, a: usize, b: usize) -> usize {
+        match self {
+            Self::Add => a + b,
+            Self::Sub => a - b,
+            Self::Mul => a * b,
+            Self::Div => a / b,
         }
-        .to_string()
     }
 }
 
 peg::parser!(pub grammar parser() for str {
-    pub rule statements(n:usize) -> Vec<Statement>
-        = n:((indent(n) s:statement(n) "\n"* {s})*) { n }
+    pub rule statements(n:usize) -> Option<Statement>
+        = indent(n) a:statement_type(n) "\n"* b:statements(n) {
+            Some(Statement {
+                block: a,
+                next: b.map(|x|Box::new(x))
+            })
+        }
+            / { None }
 
-    pub rule statement(n:usize) -> Statement
-        = i:if_rule(n) { Statement::If(i) }
-            / l:simple_loop(n) { Statement::Loop(l) }
-            / a:assignment(n) { Statement::Assign(a) }
-            / c:call() { Statement::Call(c) }
-            / f:function(n) { Statement::Function(f) }
-            / "break" { Statement::Break(ExprBreak) }
-            / "return" _ v:value() { Statement::Return(ExprReturn(v)) }
+    pub rule statement_type(n:usize) -> StatementType
+        = i:if_rule(n) { StatementType::If(i) }
+            / l:simple_loop(n) { StatementType::Loop(l) }
+            / a:assignment(n) { StatementType::Assign(a) }
+            / c:call() { StatementType::Call(c) }
+            / f:function(n) { StatementType::Function(f) }
+            / "break" { StatementType::Break(Break) }
+            / "return" _ v:value() { StatementType::Return(Return(v)) }
 
-    pub rule if_rule(n:usize) -> ExprIf
-        = "if" _ cond:cmp(n) "\n" then:statements(n+1)
-        { ExprIf::new(cond,then) }
+    pub rule if_rule(n:usize) -> If
+        = "if" _ cond:value() "\n" then:statements(n+1) {
+            If {
+                cond,
+                inner: then.map(|x|Box::new(x))
+            }
+        }
 
-    rule simple_loop(n:usize) -> ExprLoop
-        = "loop" "\n" s:statements(n+1) { ExprLoop(s) }
+    rule simple_loop(n:usize) -> Loop
+        = "loop" "\n" s:statements(n+1) { Loop(s.map(|x|Box::new(x))) }
 
-    rule assignment(n:usize) -> ExprAssign
-        = i:identifier() _ "=" _ rhs:assignment_rhs() {ExprAssign::new(i, rhs)}
+    rule assignment(n:usize) -> Assign
+        = ident:identifier() _ "=" _ expr:expression() { Assign { ident, expr } }
 
-    rule assignment_rhs() -> Expr
-        = a:value() _ op:op() _ b:value() { Expr::Binary((a,op,b)) }
-            / v:value() { Expr::Unary(v) }
+    rule expression() -> Expression
+        = lhs:value() _ op:op() _ rhs:value() {
+            Expression::Binary(Binary{
+                lhs, op, rhs
+            })
+        }
+            / v:value() { Expression::Unary(Unary(v)) }
 
     rule value() -> Value
         = c:call() { Value::Call(c) }
-            / i:identifier() { Value::Identifier(i) }
+            / i:identifier() { Value::Ident(i) }
             / l:literal() { Value::Literal(l) }
+            / "?" { Value::Unknown }
 
-    rule call() -> ExprCall
-        = ident:identifier() "(" args:((v:value() "," {v})*) ")" { ExprCall { ident, args } }
+    rule call() -> Call
+        = ident:identifier() "(" args:((v:value() "," {v})*) ")" { Call { ident, args } }
 
-    rule function(n:usize) -> ExprFn
+    rule function(n:usize) -> Function
         = "def" _ ident:identifier() "(" args:((arg:identifier() "," {arg})*) ")" "\n"
-        statements:statements(n+1) { ExprFn { ident, args, statements} }
-
-    rule cmp(n:usize) -> ExprCond
-        = lhs:value() _ cmp:cond() _ rhs:value() { ExprCond { lhs, cmp, rhs } }
-    rule cond() -> Cmp
-        = "==" { Cmp::Eq }
-        / "<" { Cmp::Lt }
-        / ">" { Cmp::Gt }
+        s:statements(n+1) { Function { ident, args, inner: s.map(|x|Box::new(x))} }
 
     rule op() -> Op
         = "+" { Op::Add }
@@ -371,12 +349,12 @@ peg::parser!(pub grammar parser() for str {
         / "*" { Op::Mul }
         / "/" { Op::Div }
 
-    rule identifier() -> ExprIdent
-        =  n:$(['a'..='z' | 'A'..='Z' | '_']+) { ExprIdent(String::from(n)) }
+    rule identifier() -> Ident
+        =  n:$(['a'..='z' | 'A'..='Z' | '_']+) { Ident(String::from(n)) }
         / expected!("identifier")
 
-    rule literal() -> ExprLit
-        = n:$(['0'..='9']+) { ExprLit(String::from(n)) }
+    rule literal() -> Literal
+        = n:$(['0'..='9']+) { Literal(n.parse().unwrap()) }
 
     rule indent(n:usize) = quiet!{"    "*<{n}>}
 
@@ -386,6 +364,16 @@ peg::parser!(pub grammar parser() for str {
 #[cfg(test)]
 mod tests {
     // use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn simple() {
+        let string = std::fs::read_to_string("./example-input").unwrap();
+        let statement = parser::statements(&string, 0).unwrap().unwrap();
+        // println!("statements: {statements:?}");
+        println!("{}", statement.print(0));
+    }
 
     // use super::*;
     // #[test]

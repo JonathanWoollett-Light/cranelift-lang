@@ -1,19 +1,19 @@
 a = 2
 b = 3
 c = a + b
-d = 3
-if a == 2
+d = ?
+if 1
     d = 4
 
 loop
     a = a + c
-    if a > 15
+    if 1
         break
 
 def triple_add(a,b,c,)
     one = a + b
     two = one + c
-    if two < 30
+    if 0
         two = triple_add(two,two,two,)
     return two
 
@@ -21,3 +21,7 @@ a = triple_add(a,1,b,)
 
 e = c + d
 e = e + a
+
+if 1
+    return 0
+return 1

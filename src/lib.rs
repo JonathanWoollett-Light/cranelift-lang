@@ -2,4 +2,4 @@
 #![warn(clippy::pedantic)]
 
 pub mod frontend;
-pub mod middleend;
+// pub mod middleend;
