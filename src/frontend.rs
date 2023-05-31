@@ -151,7 +151,7 @@ impl Value {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         match self {
-            Self::Unknown => String::from("?"),
+            Self::Unknown => "?".truecolor(255,165,0).to_string(),
             Self::Literal(l) => l.print(n),
             Self::Ident(i) => i.print(n),
             Self::Call(c) => c.print(n),
