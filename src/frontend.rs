@@ -3,7 +3,7 @@ use std::fmt;
 use std::string::ToString;
 
 /// Keyword enum to ensure consistency
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyWord {
     Def,
     If,
@@ -28,7 +28,9 @@ impl fmt::Display for KeyWord {
     }
 }
 
-#[derive(Debug, Clone)]
+pub type LiteralValue = i32;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Break;
 impl Break {
     #[must_use]
@@ -37,7 +39,7 @@ impl Break {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Call {
     pub ident: Ident,
     pub args: Vec<Value>,
@@ -56,8 +58,8 @@ impl Call {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Loop(Option<Box<Statement>>);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Loop(pub Option<Box<Statement>>);
 impl Loop {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
@@ -73,7 +75,7 @@ impl Loop {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Function {
     pub ident: Ident,
     pub args: Vec<Ident>,
@@ -99,7 +101,7 @@ impl Function {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Return(pub Value);
 impl Return {
     #[must_use]
@@ -108,7 +110,7 @@ impl Return {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Assign {
     pub ident: Ident,
     pub expr: Expression,
@@ -120,7 +122,7 @@ impl Assign {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct If {
     pub cond: Value,
     pub inner: Option<Box<Statement>>,
@@ -141,7 +143,7 @@ impl If {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
     Unknown,
     Literal(Literal),
@@ -160,8 +162,8 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Literal(i32);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Literal(pub LiteralValue);
 impl Literal {
     #[must_use]
     pub fn print(&self, _n: usize) -> String {
@@ -169,8 +171,8 @@ impl Literal {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Ident(String);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Ident(pub String);
 impl Ident {
     #[must_use]
     pub fn print(&self, _n: usize) -> String {
@@ -178,7 +180,7 @@ impl Ident {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expression {
     Unary(Unary),
     Binary(Binary),
@@ -193,10 +195,10 @@ impl Expression {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Statement {
-    block: StatementType,
-    next: Option<Box<Statement>>,
+    pub block: StatementType,
+    pub next: Option<Box<Statement>>,
 }
 impl Statement {
     pub const INDENT: &str = "    ";
@@ -215,7 +217,7 @@ impl Statement {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum StatementType {
     Loop(Loop),
     If(If),
@@ -240,8 +242,8 @@ impl StatementType {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Unary(Value);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Unary(pub Value);
 impl Unary {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
@@ -249,11 +251,11 @@ impl Unary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Binary {
-    lhs: Value,
-    op: Op,
-    rhs: Value,
+    pub lhs: Value,
+    pub op: Op,
+    pub rhs: Value,
 }
 impl Binary {
     #[must_use]
@@ -267,7 +269,7 @@ impl Binary {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Op {
     Add,
     Sub,
@@ -285,7 +287,7 @@ impl Op {
         })
     }
     #[must_use]
-    pub fn run(&self, a: usize, b: usize) -> usize {
+    pub fn run(&self, a: LiteralValue, b: LiteralValue) -> LiteralValue {
         match self {
             Self::Add => a + b,
             Self::Sub => a - b,
@@ -372,7 +374,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn simple() {
+    fn front() {
         let string = std::fs::read_to_string("./example-input.txt").unwrap();
         let statement = parser::statements(&string, 0).unwrap().unwrap();
         println!("{}", statement.print(0));

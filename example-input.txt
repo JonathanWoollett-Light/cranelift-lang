@@ -3,6 +3,7 @@ b = 3
 c = a + b
 d = ?
 if 1
+    c = d + c
     d = 4
 loop
     a = a + c
