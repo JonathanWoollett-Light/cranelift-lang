@@ -51,6 +51,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
     // TODO Make this less awkward.
     loop {
         info!("{:?}", cursor.current());
+        info!("{:?}", context.variables);
 
         if cursor.current().is_none() {
             break;
@@ -158,8 +159,6 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                 match &assign.expr {
                     Expression::Unary(unary) => match &unary.0 {
                         Value::Literal(literal) => {
-                            info!("literal: {:?}", cursor.current());
-
                             // Any assignment where the assigned value is known can be removed and the value
                             // inlined.
                             cursor.remove_current();
@@ -190,7 +189,6 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                 cursor.move_prev();
                                 i += 1;
                                 if let Some(prev) = cursor.current() {
-                                    info!("prev: {:?}", prev);
                                     match &prev.0 {
                                         StatementType::Assign(a) => {
                                             // We can only remove the assignment if it is assigning to
@@ -242,8 +240,6 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                             for _ in 0..i {
                                 cursor.move_next();
                             }
-
-                            info!("literal: {:?}", cursor.current());
 
                             context.variables.insert(assign_ident.0.clone(), literal.0);
                         }
@@ -317,6 +313,8 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                 (Some(x), Some(y)) => {
                                     let z = binary.op.run(*x, *y);
                                     context.variables.insert(assign_ident.0.clone(), z);
+
+                                    // Remove current + Step
                                     cursor.remove_current();
                                 }
                                 (Some(x), None) => {
@@ -330,7 +328,11 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                         .binary_mut()
                                         .unwrap()
                                         .lhs = Value::Literal(Literal(*x));
+                                    // The value of the identifier is now unknown thus we remove it
+                                    // from the variable context.
+                                    context.variables.remove(&assign_ident.0);
 
+                                    // Step
                                     cursor.move_next();
                                 }
                                 (None, Some(y)) => {
@@ -344,10 +346,21 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                         .binary_mut()
                                         .unwrap()
                                         .rhs = Value::Literal(Literal(*y));
+                                    // The value of the identifier is now unknown thus we remove it
+                                    // from the variable context.
+                                    context.variables.remove(&assign_ident.0);
 
+                                    // Step
                                     cursor.move_next();
                                 }
-                                (None, None) => cursor.move_next(),
+                                (None, None) => {
+                                    // The value of the identifier is now unknown thus we remove it
+                                    // from the variable context.
+                                    context.variables.remove(&assign_ident.0);
+
+                                    // Step
+                                    cursor.move_next();
+                                },
                             }
                         }
                         (Value::Unknown, Value::Ident(b)) => {
@@ -415,54 +428,10 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                     },
                     // TODO Reduce code duplicate between here and `Statement::Call`
                     Expression::Call(call) => {
-                        info!("call");
-                        // we don't get stuck).
-                        let function = context
-                            .functions
-                            .get(&call.ident.0)
-                            .expect("Undefined function.");
-                        assert_eq!(
-                            call.args.len(),
-                            function.args.len(),
-                            "Incorrect number of arguments."
-                        );
-                        let function_variables = call
-                            .args
-                            .iter()
-                            .zip(function.args.iter())
-                            .filter_map(|(from, to)| match from {
-                                Value::Literal(Literal(x)) => Some((
-                                    Context::prefix_free(context.prefix + 1, &to.0).unwrap(),
-                                    *x,
-                                )),
-                                Value::Ident(Ident(ident)) => {
-                                    context.variables.get(ident).map(|x| {
-                                        (
-                                            Context::prefix_free(context.prefix + 1, &to.0)
-                                                .unwrap(),
-                                            *x,
-                                        )
-                                    })
-                                }
-                                Value::Unknown => None,
-                            })
-                            .collect::<HashMap<_, _>>();
-                        // Functions are automatically passed.
-                        let mut function_context = Context {
-                            variables: function_variables,
-                            functions: context.functions.clone(),
-                            prefix: context.prefix + 1,
-                        };
-                        let mut list = function.inner.clone();
-                        let control = evaluate(list.cursor_front_mut(), &mut function_context);
-                        context.variables.extend(function_context.variables);
+                        let control = inline_call(&mut cursor, context, call);
                         let Some(Control::Return(ret)) = control else {
-                            panic!("Functions called for assignments need to always return.")
+                            panic!("Functions called for assignments need to always return.");
                         };
-
-                        cursor.splice_before(list);
-                        cursor.move_prev();
-                        cursor.remove_current();
 
                         cursor.current().unwrap().0.assign_mut().unwrap().expr =
                             Expression::Unary(Unary(ret));
@@ -470,44 +439,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                 }
             }
             StatementType::Call(call) => {
-                info!("call");
-                // TODO Propagate this error.
-                // TODO Handle recursive functions properly (so in case they create an infinite loop
-                // we don't get stuck).
-                let function = context
-                    .functions
-                    .get(&call.ident.0)
-                    .expect("Undefined function.");
-                assert_eq!(
-                    call.args.len(),
-                    function.args.len(),
-                    "Incorrect number of arguments."
-                );
-                let function_variables = call
-                    .args
-                    .iter()
-                    .zip(function.args.iter())
-                    .filter_map(|(from, to)| match from {
-                        Value::Literal(Literal(x)) => {
-                            Some((Context::prefix_free(context.prefix + 1, &to.0).unwrap(), *x))
-                        }
-                        Value::Ident(Ident(ident)) => context.variables.get(ident).map(|x| {
-                            (Context::prefix_free(context.prefix + 1, &to.0).unwrap(), *x)
-                        }),
-                        Value::Unknown => None,
-                    })
-                    .collect::<HashMap<_, _>>();
-                // Functions are automatically passed.
-                let mut function_context = Context {
-                    variables: function_variables,
-                    functions: context.functions.clone(),
-                    prefix: context.prefix + 1,
-                };
-                let mut list = function.inner.clone();
-                let _control = evaluate(list.cursor_front_mut(), &mut function_context);
-                context.variables.extend(function_context.variables);
-                cursor.splice_before(list);
-                cursor.remove_current();
+                let _ret = inline_call(&mut cursor, context, &call);
             }
             // TODO Handle context prefixes for functions.
             StatementType::Function(f) => {
@@ -523,6 +455,65 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
         }
     }
     None
+}
+
+fn inline_call(cursor: &mut CursorMut<Statement>, context: &mut Context, call: &Call) -> Option<Control> {
+    info!("call");
+    // we don't get stuck).
+    let function = context
+        .functions
+        .get(&call.ident.0)
+        .expect("Undefined function.");
+    assert_eq!(
+        call.args.len(),
+        function.args.len(),
+        "Incorrect number of arguments."
+    );
+    let (inline_variable_assignment, inline_variable_values) = call
+        .args
+        .iter()
+        .zip(function.args.iter())
+        .map(|(from, to)| {
+            let inline_ident = Context::prefix_free(context.prefix + 1, &to.0).unwrap();
+            match from {
+                Value::Literal(Literal(x)) => (
+                    None,
+                    Some((inline_ident,*x,))
+                ),
+                Value::Ident(Ident(ident)) => {
+                    if let Some(x) = context.variables.get(ident) {
+                        (None,Some((inline_ident,*x)))
+                    }
+                    else {
+                        (Some(Statement(StatementType::Assign(Assign { ident: Ident(inline_ident.clone()), expr: Expression::Unary(Unary(Value::Ident(Ident(ident.clone())))) }))),None)
+                    }
+                },
+                Value::Unknown => (
+                    Some(Statement(StatementType::Assign(Assign { ident: Ident(inline_ident), expr: Expression::Unary(Unary(Value::Unknown)) }))),
+                    None
+                ),
+            }
+            
+        })
+        .unzip::<_,_,Vec<_>,Vec<_>>();
+    let function_assignments = inline_variable_assignment.into_iter().filter_map(|s|s).collect::<LinkedList<_>>();
+    let function_variables = inline_variable_values.into_iter().filter_map(|s|s).collect::<HashMap<_,_>>();
+    // Functions are automatically passed.
+    let mut function_context = Context {
+        variables: function_variables,
+        functions: context.functions.clone(),
+        prefix: context.prefix + 1,
+    };
+    let mut list = function.inner.clone();
+    let control = evaluate(list.cursor_front_mut(), &mut function_context);
+    context.variables.extend(function_context.variables);
+
+    cursor.splice_before(function_assignments);
+    cursor.splice_before(list);
+    cursor.move_prev();
+    cursor.remove_current();
+
+    control
 }
 
 #[cfg(test)]
