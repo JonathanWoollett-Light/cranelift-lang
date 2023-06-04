@@ -20,7 +20,7 @@ becomes
 
 by removing 1 line `c = d + c` we have
 
-[`input-two](./input-two.png)
+[`input-two`](./input-two.png)
 
 which becomes 
 
