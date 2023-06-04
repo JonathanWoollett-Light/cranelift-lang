@@ -11,3 +11,5 @@ cranelift = "0.85.1"
 cranelift-module = "0.85.1"
 cranelift-jit = "0.85.1"
 colored = "2.0.0"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["std","fmt"] }

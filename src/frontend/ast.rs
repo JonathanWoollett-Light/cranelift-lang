@@ -1,7 +1,7 @@
 use colored::Colorize;
+use std::collections::LinkedList;
 use std::fmt;
 use std::string::ToString;
-
 /// Keyword enum to ensure consistency
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyWord {
@@ -59,19 +59,11 @@ impl Call {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Loop(pub Option<Box<Statement>>);
+pub struct Loop(pub LinkedList<Statement>);
 impl Loop {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
-        format!(
-            "{}{}",
-            KeyWord::Loop,
-            if let Some(s) = &self.0 {
-                s.print(n + 1)
-            } else {
-                String::new()
-            }
-        )
+        format!("{}{}", KeyWord::Loop, print(&self.0, n + 1))
     }
 }
 
@@ -79,7 +71,7 @@ impl Loop {
 pub struct Function {
     pub ident: Ident,
     pub args: Vec<Ident>,
-    pub inner: Option<Box<Statement>>,
+    pub inner: LinkedList<Statement>,
 }
 impl Function {
     #[must_use]
@@ -92,11 +84,7 @@ impl Function {
                 .iter()
                 .map(|x| format!("{},", x.print(n)))
                 .collect::<String>(),
-            if let Some(s) = &self.inner {
-                s.print(n + 1)
-            } else {
-                String::new()
-            }
+            print(&self.inner, n + 1)
         )
     }
 }
@@ -125,7 +113,7 @@ impl Assign {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct If {
     pub cond: Value,
-    pub inner: Option<Box<Statement>>,
+    pub inner: LinkedList<Statement>,
 }
 impl If {
     #[must_use]
@@ -134,11 +122,7 @@ impl If {
             "{} {}{}",
             KeyWord::If,
             self.cond.print(n),
-            if let Some(s) = &self.inner {
-                s.print(n + 1)
-            } else {
-                String::new()
-            }
+            print(&self.inner, n + 1)
         )
     }
 }
@@ -148,7 +132,6 @@ pub enum Value {
     Unknown,
     Literal(Literal),
     Ident(Ident),
-    Call(Call),
 }
 impl Value {
     #[must_use]
@@ -157,7 +140,18 @@ impl Value {
             Self::Unknown => "?".truecolor(255, 165, 0).to_string(),
             Self::Literal(l) => l.print(n),
             Self::Ident(i) => i.print(n),
-            Self::Call(c) => c.print(n),
+        }
+    }
+    pub fn ident_mut(&mut self) -> Option<&mut Ident> {
+        match self {
+            Self::Ident(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn literal_mut(&mut self) -> Option<&mut Literal> {
+        match self {
+            Self::Literal(x) => Some(x),
+            _ => None,
         }
     }
 }
@@ -184,6 +178,7 @@ impl Ident {
 pub enum Expression {
     Unary(Unary),
     Binary(Binary),
+    Call(Call),
 }
 impl Expression {
     #[must_use]
@@ -191,30 +186,42 @@ impl Expression {
         match self {
             Self::Unary(x) => x.print(n),
             Self::Binary(x) => x.print(n),
+            Self::Call(c) => c.print(n),
+        }
+    }
+    pub fn unary_mut(&mut self) -> Option<&mut Unary> {
+        match self {
+            Self::Unary(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn binary_mut(&mut self) -> Option<&mut Binary> {
+        match self {
+            Self::Binary(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn call_mut(&mut self) -> Option<&mut Call> {
+        match self {
+            Self::Call(x) => Some(x),
+            _ => None,
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Statement {
-    pub block: StatementType,
-    pub next: Option<Box<Statement>>,
-}
+pub struct Statement(pub StatementType);
 impl Statement {
     pub const INDENT: &str = "    ";
     #[must_use]
     pub fn print(&self, n: usize) -> String {
-        format!(
-            "\n{}{}{}",
-            Self::INDENT.repeat(n),
-            self.block.print(n),
-            if let Some(s) = &self.next {
-                s.print(n)
-            } else {
-                String::new()
-            }
-        )
+        format!("\n{}{}", Self::INDENT.repeat(n), self.0.print(n),)
     }
+}
+
+#[must_use]
+pub fn print(list: &LinkedList<Statement>, n: usize) -> String {
+    list.iter().map(|statement| statement.print(n)).collect()
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -238,6 +245,48 @@ impl StatementType {
             Self::Break(b) => b.print(n),
             Self::Function(f) => f.print(n),
             Self::Return(r) => r.print(n),
+        }
+    }
+    pub fn loop_mut(&mut self) -> Option<&mut Loop> {
+        match self {
+            Self::Loop(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn if_mut(&mut self) -> Option<&mut If> {
+        match self {
+            Self::If(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn return_mut(&mut self) -> Option<&mut Return> {
+        match self {
+            Self::Return(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn break_mut(&mut self) -> Option<&mut Break> {
+        match self {
+            Self::Break(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn assign_mut(&mut self) -> Option<&mut Assign> {
+        match self {
+            Self::Assign(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn call_mut(&mut self) -> Option<&mut Call> {
+        match self {
+            Self::Call(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn function_mut(&mut self) -> Option<&mut Function> {
+        match self {
+            Self::Function(x) => Some(x),
+            _ => None,
         }
     }
 }
@@ -294,89 +343,5 @@ impl Op {
             Self::Mul => a * b,
             Self::Div => a / b,
         }
-    }
-}
-
-peg::parser!(pub grammar parser() for str {
-    pub rule statements(n:usize) -> Option<Statement>
-        = indent(n) a:statement_type(n) "\n"* b:statements(n) {
-            Some(Statement {
-                block: a,
-                next: b.map(Box::new)
-            })
-        }
-            / { None }
-
-    pub rule statement_type(n:usize) -> StatementType
-        = i:if_rule(n) { StatementType::If(i) }
-            / l:simple_loop(n) { StatementType::Loop(l) }
-            / a:assignment(n) { StatementType::Assign(a) }
-            / c:call() { StatementType::Call(c) }
-            / f:function(n) { StatementType::Function(f) }
-            / "break" { StatementType::Break(Break) }
-            / "return" _ v:value() { StatementType::Return(Return(v)) }
-
-    pub rule if_rule(n:usize) -> If
-        = "if" _ cond:value() "\n" then:statements(n+1) {
-            If {
-                cond,
-                inner: then.map(Box::new)
-            }
-        }
-
-    rule simple_loop(n:usize) -> Loop
-        = "loop" "\n" s:statements(n+1) { Loop(s.map(Box::new)) }
-
-    rule assignment(n:usize) -> Assign
-        = ident:identifier() _ "=" _ expr:expression() { Assign { ident, expr } }
-
-    rule expression() -> Expression
-        = lhs:value() _ op:op() _ rhs:value() {
-            Expression::Binary(Binary{
-                lhs, op, rhs
-            })
-        }
-            / v:value() { Expression::Unary(Unary(v)) }
-
-    rule value() -> Value
-        = c:call() { Value::Call(c) }
-            / i:identifier() { Value::Ident(i) }
-            / l:literal() { Value::Literal(l) }
-            / "?" { Value::Unknown }
-
-    rule call() -> Call
-        = ident:identifier() "(" args:((v:value() "," {v})*) ")" { Call { ident, args } }
-
-    rule function(n:usize) -> Function
-        = "def" _ ident:identifier() "(" args:((arg:identifier() "," {arg})*) ")" "\n"
-        s:statements(n+1) { Function { ident, args, inner: s.map(Box::new)} }
-
-    rule op() -> Op
-        = "+" { Op::Add }
-        / "-" { Op::Sub }
-        / "*" { Op::Mul }
-        / "/" { Op::Div }
-
-    rule identifier() -> Ident
-        =  n:$(['a'..='z' | 'A'..='Z' | '_']+) { Ident(String::from(n)) }
-        / expected!("identifier")
-
-    rule literal() -> Literal
-        = n:$(['0'..='9']+) { Literal(n.parse().unwrap()) }
-
-    rule indent(n:usize) = quiet!{"    "*<{n}>}
-
-    rule _() =  quiet!{" "}
-});
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn front() {
-        let string = std::fs::read_to_string("./example-input.txt").unwrap();
-        let statement = parser::statements(&string, 0).unwrap().unwrap();
-        println!("{}", statement.print(0));
     }
 }

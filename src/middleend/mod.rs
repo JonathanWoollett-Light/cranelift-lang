@@ -1,353 +1,555 @@
-#[allow(clippy::wildcard_imports)]
+mod ast;
+
 use crate::frontend::*;
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, LinkedList},
+    time::{Duration, Instant},
+};
 
-pub mod call;
-pub mod value;
-pub mod binary;
+use tracing::info;
 
-use std::cmp::{max, min};
-#[derive(Debug)]
-pub struct CheckingValue {
-    current: usize,
-    known_range: std::ops::Range<usize>,
+#[derive(Debug, Default)]
+pub struct Context {
+    /// The values of variables.
+    variables: HashMap<String, LiteralValue>,
+    /// The definitions of functions.
+    functions: HashMap<String, Function>,
+    /// When inline variables from a function, we use a prefix prevent identifier collisions.
+    /// Specifically we use `_` as the prefix as this character is not accepted by the parser, so
+    /// the user cannot use it to define variables.
+    prefix: usize,
 }
-
-pub type ValueMap = HashMap<ExprIdent, CheckingValue>;
-pub type FunctionMap<'a> = HashMap<ExprIdent, &'a ExprFn>;
-
-#[derive(Debug)]
-pub enum ControlFlow {
-    None,
-    Break,
-    Return(Option<usize>),
-}
-
-#[derive(Debug)]
-pub enum ConstStatement {
-    If(ConstExprIf),
-    Assign(ConstAssign),
-    Loop(ConstLoop),
-    Call(ConstCall),
-    Break,
-    Function,
-    Return(Box<ConstReturn>),
-}
-
-pub fn evaluate_function<'a>(
-    _: &mut ValueMap,
-    functions: &mut FunctionMap<'a>,
-    const_program: &mut Vec<Statement>,
-    function: &'a ExprFn,
-) {
-    functions.insert(function.ident.clone(), function);
-}
-
-const LOOP_LIMIT: usize = 100;
-
-pub fn evaluate_loop<'a>(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap<'a>,
-    const_program: &mut Vec<Statement>,
-    ExprLoop(statements): &'a ExprLoop,
-) -> (Option<ControlFlow>, ConstLoop) {
-    // TODO Store the values of element in the loop in each iteration.
-    let mut i = 0;
-    let const_block = Vec::new();
-    loop {
-        for statement in statements.iter() {
-            if i > LOOP_LIMIT {
-                return (None, ConstLoop(const_block));
-            }
-            i += 1;
-            match evaluate_statement(values, functions, const_program, statement) {
-                (Some(ControlFlow::None), _) => continue,
-                // This loop breaks and consumes the break.
-                (Some(ControlFlow::Break), _) => {
-                    return (Some(ControlFlow::None), ConstLoop(const_block))
-                }
-                (Some(ControlFlow::Return(v)), _) => {
-                    return (Some(ControlFlow::Return(v)), ConstLoop(const_block))
-                }
-                (None, _) => return (None, ConstLoop(const_block)),
-            }
-        }
+impl Context {
+    fn prefix(&self, x: &str) -> Option<String> {
+        Self::prefix_free(self.prefix, x)
     }
-}
-
-pub fn evaluate_return<'a>(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap<'a>,
-    const_program: &mut Vec<Statement>,
-    ExprReturn(statement): &'a ExprReturn,
-) -> (Option<usize>, ConstReturn) {
-    let (control_flow, const_value) = evaluate_value(values, functions, const_program, statement);
-    (control_flow, ConstReturn(const_value))
-}
-
-pub fn evaluate_statement<'a>(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap<'a>,
-    const_program: &mut Vec<Statement>,
-    statement: &'a Statement,
-) -> (Option<ControlFlow>, ConstStatement) {
-    match statement {
-        Statement::Assign(assign) => {
-            let const_assign = evaluate_assign(values, functions, const_program, assign);
-            (
-                Some(ControlFlow::None),
-                ConstStatement::Assign(const_assign),
-            )
-        }
-        Statement::Loop(expr_loop) => {
-            let (control_flow, const_loop) =
-                evaluate_loop(values, functions, const_program, expr_loop);
-            (control_flow, ConstStatement::Loop(const_loop))
-        }
-        Statement::If(expr_if) => {
-            let (control_flow, const_if) = evaluate_if(values, functions, const_program, expr_if);
-            (control_flow, ConstStatement::If(const_if))
-        }
-        Statement::Call(expr_call) => {
-            let (_, const_call) = call::evaluate_call(values, functions, const_program, expr_call);
-            (Some(ControlFlow::None), ConstStatement::Call(const_call))
-        }
-        Statement::Break(_) => (Some(ControlFlow::Break), ConstStatement::Break),
-        Statement::Function(expr_fn) => {
-            evaluate_function(values, functions, const_program, expr_fn);
-            (Some(ControlFlow::None), ConstStatement::Function)
-        }
-        Statement::Return(expr_return) => {
-            let (v, const_return) = evaluate_return(values, functions, const_program, expr_return);
-
-            (
-                Some(ControlFlow::Return(v.clone())),
-                ConstStatement::Return(Box::new(const_return)),
-            )
-        }
-    }
-}
-
-pub struct ConstReturn(ConstValue);
-
-pub struct ConstLoop(Vec<ConstStatement>);
-
-pub enum ConstExprIf {
-    True(Vec<ConstStatement>),
-    False,
-    Unknown(ExprCond, Vec<ConstStatement>),
-}
-pub enum ConstAssign {
-    // An unknown binary expression
-    Binary(Box<ConstValue>, Op, Box<ConstValue>),
-    // An unknown value
-    Unary(Box<ConstValue>),
-    // A known value.
-    Known,
-}
-
-pub fn evaluate_if<'a>(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap<'a>,
-    const_program: &mut Vec<Statement>,
-    ExprIf { cond, then, val }: &'a ExprIf,
-) -> (Option<ControlFlow>, ConstExprIf) {
-    let eval = evaluate_cond(values, functions, const_program, cond).map(|x| x == 1);
-    val.borrow_mut().push(eval);
-
-    match eval {
-        Some(true) => {
-            let mut const_block = Vec::new();
-            for statement in then.iter() {
-                match evaluate_statement(values, functions, const_program, statement) {
-                    (Some(ControlFlow::None), _) => continue,
-                    (Some(ControlFlow::Break), _) => {
-                        return (Some(ControlFlow::Break), ConstExprIf::True(const_block))
-                    }
-                    (Some(ControlFlow::Return(v)), _) => {
-                        return (Some(ControlFlow::Return(v)), ConstExprIf::True(const_block))
-                    }
-                    // If in any statement we cannot know if control flow is evaluated then we cannot
-                    // know if control flow is evaluated for this if.
-                    (None, _) => return (None, ConstExprIf::True(const_block)),
-                }
-            }
-            (Some(ControlFlow::None), ConstExprIf::True(const_block))
-        }
-        Some(false) => (Some(ControlFlow::None), ConstExprIf::False),
-        None => (None, ConstExprIf::Unknown(cond.clone(), then.clone())),
-    }
-}
-
-pub fn evaluate_cond(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap,
-    const_program: &mut Vec<Statement>,
-    ExprCond { lhs, cmp, rhs }: &ExprCond,
-) -> Option<usize> {
-    let (rhs_opt, lhs_opt) = (
-        evaluate_value(values, functions, const_program, lhs),
-        evaluate_value(values, functions, const_program, rhs),
-    );
-    match (rhs_opt, lhs_opt) {
-        (Some(rhs), Some(lhs)) => Some(match cmp {
-            Cmp::Eq => usize::from(rhs == lhs),
-            Cmp::Gt => usize::from(rhs > lhs),
-            Cmp::Lt => usize::from(rhs < lhs),
-        }),
-        _ => None,
-    }
-}
-
-/// Evaluates an assignment expression.
-pub fn evaluate_assign(
-    values: &mut ValueMap,
-    functions: &mut FunctionMap,
-    const_program: &mut Vec<Statement>,
-    ExprAssign { ident, assign, val }: &ExprAssign,
-) -> Option<ConstAssign> {
-    let x: (Option<usize>, ConstAssign) = match assign {
-        Expr::Unary(value) => {
-            let (x, y) = evaluate_value(values, functions, const_program, value);
-            (x, ConstAssign::Unary(Box::new(y)))
-        }
-        Expr::Binary(binary) => {
-            let (x, y) = evaluate_binary(values, functions, const_program, binary);
-
-            (
-                x,
-                match y {
-                    Some((lhs, op, rhs)) => ConstAssign::Binary(Box::new(lhs), op, Box::new(rhs)),
-                    None => None,
-                },
-            )
-        }
-    };
-    // Push this value onto the evaluates values for this expression.
-    val.borrow_mut().push(x);
-
-    // If the assignment can be evaluated at compile time.
-    if let Some(y) = x {
-        if let Some(z) = values.get_mut(ident) {
-            z.current = y;
-            z.known_range = min(z.known_range.start, y)..max(z.known_range.end, y);
+    fn prefix_free(n: usize, x: &str) -> Option<String> {
+        let num = x.chars().take_while(|c| *c == '_').count();
+        if num <= n {
+            Some(format!("{}{x}", "_".repeat(n)))
         } else {
-            values.insert(
-                ident.clone(),
-                CheckingValue {
-                    current: y,
-                    known_range: y..y,
-                },
-            );
+            None
         }
-        None
-    } else {
-        Some(ConstAssign::Unknown(ident.0.clone()))
     }
+}
+use std::collections::linked_list::CursorMut;
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Control {
+    Break,
+    Return(Value),
+}
+
+const MAX_FUNCTION_INLINING_TIME: Duration = Duration::from_secs(1);
+
+#[allow(clippy::match_same_arms)]
+// #[instrument]
+pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Option<Control> {
+    #[cfg(debug_assertions)]
+    let mut outer_guard = 0;
+
+    // TODO Make this less awkward.
+    loop {
+        info!("{:?}", cursor.current());
+
+        if cursor.current().is_none() {
+            break;
+        }
+
+        debug_assert!(cursor.current().is_some());
+
+        // info!("current: {:?}", cursor.current());
+        // info!("next: {:?}", cursor.peek_next());
+        // info!("prev: {:?}", cursor.peek_prev());
+
+        match cursor.current().unwrap().0.clone() {
+            // TODO Properly handle loops
+            StatementType::Loop(l) => {
+                #[cfg(debug_assertions)]
+                let mut guard = 0;
+
+                let mut inline = LinkedList::new();
+                let start = Instant::now();
+                let inlined = loop {
+                    // We spend up to 1 second evaluating if code can be inlined.
+                    if start.elapsed() > MAX_FUNCTION_INLINING_TIME {
+                        break false;
+                    }
+                    #[cfg(debug_assertions)]
+                    {
+                        guard += 1;
+                        debug_assert!(guard < 3);
+                    }
+                    let mut list = l.0.clone();
+                    let control = evaluate(list.cursor_front_mut(), context);
+                    info!("control: {control:?}");
+                    inline.append(&mut list);
+                    match control {
+                        None => continue,
+                        Some(Control::Break) => {
+                            cursor.splice_before(inline);
+                            cursor.remove_current();
+                            break true;
+                        }
+                        Some(Control::Return(x)) => {
+                            cursor.splice_before(inline);
+                            cursor.remove_current();
+                            return Some(Control::Return(x));
+                        }
+                    }
+                };
+                // If the loop was not inlined, move past it.
+                if !inlined {
+                    cursor.move_next();
+                }
+            }
+            StatementType::If(i) => {
+                match &i.cond {
+                    Value::Literal(literal) => {
+                        // if false
+                        if literal.0 == 0 {
+                            cursor.remove_current();
+                        }
+                        // if true
+                        else {
+                            cursor.splice_after(i.inner);
+                            cursor.remove_current();
+                        }
+                    }
+                    _ => cursor.move_next(),
+                }
+            }
+            StatementType::Return(_) => {
+                // Apply context prefix.
+                if let Some(ident) = cursor
+                    .current()
+                    .unwrap()
+                    .0
+                    .return_mut()
+                    .unwrap()
+                    .0
+                    .ident_mut()
+                {
+                    ident.0 = context.prefix(&ident.0).unwrap();
+                }
+                let value = cursor.current().unwrap().0.return_mut().unwrap().0.clone();
+
+                info!("return");
+                cursor.split_after();
+                info!("{:?}", cursor.current());
+                cursor.move_next();
+                info!("{:?}", cursor.current());
+                return Some(Control::Return(value));
+            }
+            StatementType::Break(_) => {
+                info!("break");
+                cursor.split_after();
+                // TODO There are plenty circumstances where loops are not inlined and breaks cannot
+                // be removed. For these (which represent most loops, this is incorrect and will
+                // need to be fixed moving forward).
+                cursor.remove_current();
+                return Some(Control::Break);
+            }
+            StatementType::Assign(assign) => {
+                // Apply context prefix.
+                let assign_ident = Ident(context.prefix(&assign.ident.0).unwrap());
+                cursor.current().unwrap().0.assign_mut().unwrap().ident.0 = assign_ident.0.clone();
+
+                match &assign.expr {
+                    Expression::Unary(unary) => match &unary.0 {
+                        Value::Literal(literal) => {
+                            info!("literal: {:?}", cursor.current());
+
+                            // Any assignment where the assigned value is known can be removed and the value
+                            // inlined.
+                            cursor.remove_current();
+
+                            // When assigning a literal to an identifier, we can remove all previous assigns
+                            // where the value wasn't used.
+                            //
+                            // From
+                            // ```
+                            // x = ?
+                            // x = 4
+                            // ```
+                            // we can remove `x = ?`
+                            //
+                            // As such here, we iterate through the previous statement, until we find a
+                            // statement that uses the identifier, if this statement is an assignment we
+                            // remove it, otherwise we break.
+                            let mut i = 0;
+                            #[cfg(debug_assertions)]
+                            let mut guard: i32 = 0;
+                            loop {
+                                #[cfg(debug_assertions)]
+                                {
+                                    guard += 1;
+                                    debug_assert!(guard < 100);
+                                }
+
+                                cursor.move_prev();
+                                i += 1;
+                                if let Some(prev) = cursor.current() {
+                                    info!("prev: {:?}", prev);
+                                    match &prev.0 {
+                                        StatementType::Assign(a) => {
+                                            // We can only remove the assignment if it is assigning to
+                                            // the same ident and is not using the ident (if the
+                                            // ident was previously assigned an unknown value e.g.
+                                            // `x = ?` it won't be inlined and this next assignment
+                                            // `x = x + 5` cannot be removed).
+                                            if a.ident == assign_ident {
+                                                match &a.expr {
+                                                    Expression::Binary(Binary {
+                                                        lhs,
+                                                        op: _,
+                                                        rhs,
+                                                    }) => {
+                                                        if !(matches!(lhs,Value::Ident(x) if *x == assign_ident)
+                                                            || matches!(rhs,Value::Ident(x) if *x == assign_ident))
+                                                        {
+                                                            cursor.remove_current();
+                                                            i -= 1;
+                                                            continue;
+                                                        }
+                                                    }
+                                                    Expression::Unary(Unary(value)) => {
+                                                        if !matches!(value,Value::Ident(x) if *x == assign_ident)
+                                                        {
+                                                            cursor.remove_current();
+                                                            i -= 1;
+                                                            continue;
+                                                        }
+                                                    },
+                                                    Expression::Call(Call { ident: _, args }) => {
+                                                        if !args.iter().any(|arg|matches!(arg,Value::Ident(x) if *x == assign_ident)) {
+                                                            cursor.remove_current();
+                                                            i -= 1;
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // TODO We should only break when the identifier is used, not when
+                                        // any statement other than an assign is used, fix this.
+                                        _ => {}
+                                    }
+                                }
+                                break;
+                            }
+                            // Reset cursor to current position.
+                            for _ in 0..i {
+                                cursor.move_next();
+                            }
+
+                            info!("literal: {:?}", cursor.current());
+
+                            context.variables.insert(assign_ident.0.clone(), literal.0);
+                        }
+                        Value::Unknown => cursor.move_next(),
+                        Value::Ident(ident) => {
+                            // Apply context prefix.
+                            // In this case, we may be assigning an identifier from an inlined
+                            // scope, this could mean it would already have a greater prefix, in
+                            // this case this is okay.
+                            let ident: Ident = if let Some(new) = context.prefix(&ident.0) {
+                                Ident(new)
+                            } else {
+                                Ident(ident.0.clone())
+                            };
+                            cursor
+                                .current()
+                                .unwrap()
+                                .0
+                                .assign_mut()
+                                .unwrap()
+                                .expr
+                                .unary_mut()
+                                .unwrap()
+                                .0
+                                .ident_mut()
+                                .unwrap()
+                                .0 = ident.0.clone();
+
+                            if let Some(x) = context.variables.get(&ident.0) {
+                                context.variables.insert(assign_ident.0.clone(), *x);
+                                cursor.remove_current();
+                            } else {
+                                cursor.move_next();
+                            }
+                        }
+                    },
+                    Expression::Binary(binary) => match (&binary.lhs, &binary.rhs) {
+                        (Value::Ident(a), Value::Ident(b)) => {
+                            // Apply context prefix.
+                            let a = Ident(context.prefix(&a.0).unwrap());
+                            cursor
+                                .current()
+                                .unwrap()
+                                .0
+                                .assign_mut()
+                                .unwrap()
+                                .expr
+                                .binary_mut()
+                                .unwrap()
+                                .lhs
+                                .ident_mut()
+                                .unwrap()
+                                .0 = a.0.clone();
+                            // Apply context prefix.
+                            let b = Ident(context.prefix(&b.0).unwrap());
+                            cursor
+                                .current()
+                                .unwrap()
+                                .0
+                                .assign_mut()
+                                .unwrap()
+                                .expr
+                                .binary_mut()
+                                .unwrap()
+                                .rhs
+                                .ident_mut()
+                                .unwrap()
+                                .0 = b.0.clone();
+
+                            match (context.variables.get(&a.0), context.variables.get(&b.0)) {
+                                (Some(x), Some(y)) => {
+                                    let z = binary.op.run(*x, *y);
+                                    context.variables.insert(assign_ident.0.clone(), z);
+                                    cursor.remove_current();
+                                }
+                                (Some(x), None) => {
+                                    cursor
+                                        .current()
+                                        .unwrap()
+                                        .0
+                                        .assign_mut()
+                                        .unwrap()
+                                        .expr
+                                        .binary_mut()
+                                        .unwrap()
+                                        .lhs = Value::Literal(Literal(*x));
+
+                                    cursor.move_next();
+                                }
+                                (None, Some(y)) => {
+                                    cursor
+                                        .current()
+                                        .unwrap()
+                                        .0
+                                        .assign_mut()
+                                        .unwrap()
+                                        .expr
+                                        .binary_mut()
+                                        .unwrap()
+                                        .rhs = Value::Literal(Literal(*y));
+
+                                    cursor.move_next();
+                                }
+                                (None, None) => cursor.move_next(),
+                            }
+                        }
+                        (Value::Unknown, Value::Ident(b)) => {
+                            // Apply context prefix.
+                            let b = Ident(context.prefix(&b.0).unwrap());
+                            cursor
+                                .current()
+                                .unwrap()
+                                .0
+                                .assign_mut()
+                                .unwrap()
+                                .expr
+                                .binary_mut()
+                                .unwrap()
+                                .rhs
+                                .ident_mut()
+                                .unwrap()
+                                .0 = b.0.clone();
+                            if let Some(y) = context.variables.get(&b.0) {
+                                cursor
+                                    .current()
+                                    .unwrap()
+                                    .0
+                                    .assign_mut()
+                                    .unwrap()
+                                    .expr
+                                    .binary_mut()
+                                    .unwrap()
+                                    .rhs = Value::Literal(Literal(*y));
+                            }
+                            cursor.move_next();
+                        }
+                        (Value::Ident(a), Value::Unknown) => {
+                            // Apply context prefix.
+                            let a = Ident(context.prefix(&a.0).unwrap());
+                            cursor
+                                .current()
+                                .unwrap()
+                                .0
+                                .assign_mut()
+                                .unwrap()
+                                .expr
+                                .binary_mut()
+                                .unwrap()
+                                .lhs
+                                .ident_mut()
+                                .unwrap()
+                                .0 = a.0.clone();
+                            if let Some(x) = context.variables.get(&a.0) {
+                                cursor
+                                    .current()
+                                    .unwrap()
+                                    .0
+                                    .assign_mut()
+                                    .unwrap()
+                                    .expr
+                                    .binary_mut()
+                                    .unwrap()
+                                    .lhs = Value::Literal(Literal(*x));
+                            }
+                            cursor.move_next();
+                        }
+                        // TODO Handle the other binary cases
+                        _ => cursor.move_next(),
+                    },
+                    // TODO Reduce code duplicate between here and `Statement::Call`
+                    Expression::Call(call) => {
+                        info!("call");
+                        // we don't get stuck).
+                        let function = context
+                            .functions
+                            .get(&call.ident.0)
+                            .expect("Undefined function.");
+                        assert_eq!(
+                            call.args.len(),
+                            function.args.len(),
+                            "Incorrect number of arguments."
+                        );
+                        let function_variables = call
+                            .args
+                            .iter()
+                            .zip(function.args.iter())
+                            .filter_map(|(from, to)| match from {
+                                Value::Literal(Literal(x)) => Some((
+                                    Context::prefix_free(context.prefix + 1, &to.0).unwrap(),
+                                    *x,
+                                )),
+                                Value::Ident(Ident(ident)) => {
+                                    context.variables.get(ident).map(|x| {
+                                        (
+                                            Context::prefix_free(context.prefix + 1, &to.0)
+                                                .unwrap(),
+                                            *x,
+                                        )
+                                    })
+                                }
+                                Value::Unknown => None,
+                            })
+                            .collect::<HashMap<_, _>>();
+                        // Functions are automatically passed.
+                        let mut function_context = Context {
+                            variables: function_variables,
+                            functions: context.functions.clone(),
+                            prefix: context.prefix + 1,
+                        };
+                        let mut list = function.inner.clone();
+                        let control = evaluate(list.cursor_front_mut(), &mut function_context);
+                        context.variables.extend(function_context.variables);
+                        let Some(Control::Return(ret)) = control else {
+                            panic!("Functions called for assignments need to always return.")
+                        };
+
+                        cursor.splice_before(list);
+                        cursor.move_prev();
+                        cursor.remove_current();
+
+                        cursor.current().unwrap().0.assign_mut().unwrap().expr =
+                            Expression::Unary(Unary(ret));
+                    }
+                }
+            }
+            StatementType::Call(call) => {
+                info!("call");
+                // TODO Propagate this error.
+                // TODO Handle recursive functions properly (so in case they create an infinite loop
+                // we don't get stuck).
+                let function = context
+                    .functions
+                    .get(&call.ident.0)
+                    .expect("Undefined function.");
+                assert_eq!(
+                    call.args.len(),
+                    function.args.len(),
+                    "Incorrect number of arguments."
+                );
+                let function_variables = call
+                    .args
+                    .iter()
+                    .zip(function.args.iter())
+                    .filter_map(|(from, to)| match from {
+                        Value::Literal(Literal(x)) => {
+                            Some((Context::prefix_free(context.prefix + 1, &to.0).unwrap(), *x))
+                        }
+                        Value::Ident(Ident(ident)) => context.variables.get(ident).map(|x| {
+                            (Context::prefix_free(context.prefix + 1, &to.0).unwrap(), *x)
+                        }),
+                        Value::Unknown => None,
+                    })
+                    .collect::<HashMap<_, _>>();
+                // Functions are automatically passed.
+                let mut function_context = Context {
+                    variables: function_variables,
+                    functions: context.functions.clone(),
+                    prefix: context.prefix + 1,
+                };
+                let mut list = function.inner.clone();
+                let _control = evaluate(list.cursor_front_mut(), &mut function_context);
+                context.variables.extend(function_context.variables);
+                cursor.splice_before(list);
+                cursor.remove_current();
+            }
+            // TODO Handle context prefixes for functions.
+            StatementType::Function(f) => {
+                context.functions.insert(f.ident.0.clone(), f);
+                cursor.remove_current();
+            }
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            outer_guard += 1;
+            assert!(outer_guard < 100);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn checker() {
-        let string = std::fs::read_to_string("./example-input").unwrap();
-        let statements = parser::statements(&string, 0).unwrap();
-        println!("statements: {statements:?}");
+    fn middle() {
+        tracing_subscriber::fmt::fmt()
+            .with_file(true)
+            .with_line_number(true)
+            .init();
 
-        let mut values = ValueMap::new();
-        let mut functions = FunctionMap::new();
-        let mut const_program = Vec::new();
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[0],
-        );
-        println!("\nstatements[0]: {:?}", statements[0]);
+        let string = std::fs::read_to_string("./example-input.txt").unwrap();
+        let mut list = crate::frontend::parser::statements(&string, 0).unwrap();
 
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[1],
-        );
-        println!("\nstatements[1]: {:?}", statements[1]);
+        print!("---------------------------------------");
+        println!("{}", print(&list, 0));
+        println!("---------------------------------------");
 
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[2],
-        );
-        println!("\nstatements[2]: {:?}", statements[2]);
+        let mut context = Context::default();
 
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[3],
-        );
-        println!("\nstatements[3]: {:?}", statements[3]);
+        let cursor = list.cursor_front_mut();
+        evaluate(cursor, &mut context);
 
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[4],
-        );
-        println!("\nstatements[4]: {:?}", statements[4]);
-
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[5],
-        );
-        println!("\nstatements[5]: {:?}", statements[5]);
-
-        println!("\nvalues: {values:?}");
-
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[6],
-        );
-        println!("\nstatements[6]: {:?}", statements[6]);
-
-        println!("\nfunctions: {functions:?}");
-
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[7],
-        );
-        println!("\nstatements[7]: {:?}", statements[7]);
-
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[8],
-        );
-        println!("\nstatements[8]: {:?}", statements[8]);
-
-        evaluate_statement(
-            &mut values,
-            &mut functions,
-            &mut const_program,
-            &statements[9],
-        );
-        println!("\nstatements[9]: {:?}", statements[9]);
-
-        println!(
-            "\n\n\n{}\n\n\n",
-            statements
-                .iter()
-                .map(|s| format!("{}\n", s.print(0)))
-                .collect::<String>()
-        );
+        print!("---------------------------------------");
+        println!("{}", print(&list, 0));
+        println!("---------------------------------------");
     }
 }

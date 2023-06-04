@@ -5,6 +5,7 @@ d = ?
 if 1
     c = d + c
     d = 4
+a = d
 loop
     a = a + c
     if 1
@@ -18,6 +19,7 @@ def triple_add(a,b,c,)
 a = triple_add(a,1,b,)
 e = c + d
 e = e + a
+e = ? + a
 if 1
     return 0
 return 1
