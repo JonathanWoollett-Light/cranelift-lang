@@ -12,19 +12,19 @@ A visualization I use for illustrate the abstract syntax tree:
 
 ### Compile-time evaluation
 
-[`input-one`](./input-one.png)
+![input-one](./input-one.png)
 
 becomes
 
-[`output-one`](./output-one.png)
+![output-one](./output-one.png)
 
 by removing 1 line `c = d + c` we have
 
-[`input-two`](./input-two.png)
+![input-two](./input-two.png)
 
 which becomes 
 
-[`output-two`](./output-two.png)
+![output-two](./output-two.png)
 
 ### Parsing
 
@@ -58,4 +58,4 @@ return 1
 
 becomes
 
-[`parsing-output`](./parsing-output.png)
+![parsing-output](./parsing-output.png)
