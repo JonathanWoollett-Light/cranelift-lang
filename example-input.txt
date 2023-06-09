@@ -1,3 +1,6 @@
+x = ?
+y = 2
+y = x
 a = 2
 b = 3
 c = a + b
@@ -19,7 +22,8 @@ def triple_add(a,b,c,)
 a = triple_add(a,1,b,)
 e = c + d
 e = e + a
-e = ? + e
+x = ?
+e = x + e
 if 1
     return e
 return 1

@@ -45,6 +45,12 @@ pub struct Call {
     pub args: Vec<Value>,
 }
 impl Call {
+    pub fn main() -> Self {
+        Self {
+            ident: Ident(String::new()),
+            args: Vec::new(),
+        }
+    }
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         format!(
@@ -129,7 +135,6 @@ impl If {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Value {
-    Unknown,
     Literal(Literal),
     Ident(Ident),
 }
@@ -137,7 +142,6 @@ impl Value {
     #[must_use]
     pub fn print(&self, n: usize) -> String {
         match self {
-            Self::Unknown => "?".truecolor(255, 165, 0).to_string(),
             Self::Literal(l) => l.print(n),
             Self::Ident(i) => i.print(n),
         }
@@ -145,13 +149,13 @@ impl Value {
     pub fn ident_mut(&mut self) -> Option<&mut Ident> {
         match self {
             Self::Ident(x) => Some(x),
-            _ => None,
+            Self::Literal(_) => None,
         }
     }
     pub fn literal_mut(&mut self) -> Option<&mut Literal> {
         match self {
             Self::Literal(x) => Some(x),
-            _ => None,
+            Self::Ident(_) => None,
         }
     }
 }
@@ -175,10 +179,19 @@ impl Ident {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Unknown;
+impl Unknown {
+    fn print(&self, _n: usize) -> String {
+        "?".truecolor(255, 165, 0).to_string()
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expression {
     Unary(Unary),
     Binary(Binary),
     Call(Call),
+    Unknown(Unknown),
 }
 impl Expression {
     #[must_use]
@@ -187,6 +200,7 @@ impl Expression {
             Self::Unary(x) => x.print(n),
             Self::Binary(x) => x.print(n),
             Self::Call(c) => c.print(n),
+            Self::Unknown(c) => c.print(n),
         }
     }
     pub fn unary_mut(&mut self) -> Option<&mut Unary> {
@@ -204,6 +218,12 @@ impl Expression {
     pub fn call_mut(&mut self) -> Option<&mut Call> {
         match self {
             Self::Call(x) => Some(x),
+            _ => None,
+        }
+    }
+    pub fn unknown_mut(&mut self) -> Option<&mut Unknown> {
+        match self {
+            Self::Unknown(x) => Some(x),
             _ => None,
         }
     }

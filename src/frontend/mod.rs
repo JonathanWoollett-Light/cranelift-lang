@@ -43,11 +43,11 @@ peg::parser!(pub grammar parser() for str {
         }
             / c:call() { Expression::Call(c) }
             / v:value() { Expression::Unary(Unary(v)) }
+            / "?" { Expression::Unknown(Unknown) }
 
     rule value() -> Value
         = i:identifier() { Value::Ident(i) }
             / l:literal() { Value::Literal(l) }
-            / "?" { Value::Unknown }
 
     rule call() -> Call
         = ident:identifier() "(" args:((v:value() "," {v})*) ")" { Call { ident, args } }
