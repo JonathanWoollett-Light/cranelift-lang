@@ -181,7 +181,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                     Expression::Unknown(_) => {
                         // The value cannot be evaluated at compile-time thus we remove
                         // the variable from the context.
-                        context.variables.remove(&assign_ident.0);
+                        context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
                         step_forward = true;
                     }
                     Expression::Unary(unary) => match &unary.0 {
@@ -216,8 +216,8 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                             );
                         }
                     },
-                    Expression::Binary(binary) => match (&binary.lhs, &binary.rhs) {
-                        (Value::Ident(a), Value::Ident(b)) => {
+                    Expression::Binary(Binary { lhs, op, rhs }) => match (lhs, op, rhs) {
+                        (Value::Ident(a), Op::Add, Value::Ident(b)) => {
                             // Apply context prefix.
                             let a = Ident(context.prefix(&a.0).unwrap());
                             cursor
@@ -249,8 +249,83 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                 .unwrap()
                                 .0 = b.0.clone();
 
-                            match (context.variables.get(&a.0), context.variables.get(&b.0)) {
+                            match (&context.variables.get(&a.0).cloned(), &context.variables.get(&b.0).cloned()) {
                                 (Some(x), Some(y)) => match (x, y) {
+                                    (Expression::Unary(Unary(unary)), Expression::Binary(Binary { lhs: inner_lhs, op: inner_op, rhs: inner_rhs })) => match (unary,inner_lhs,inner_op,inner_rhs){
+                                        (Value::Literal(Literal(a)), Value::Ident(Ident(_)), Op::Add, Value::Literal(Literal(c))) => {
+                                            let new_lhs = Value::Literal(Literal(a+c));
+                                            let new_expr = Expression::Binary(Binary { lhs: new_lhs.clone(), op: op.clone(), rhs: rhs.clone() });
+                                            context.variables.insert(
+                                                assign_ident.0.clone(),
+                                                new_expr,
+                                            );
+                                            cursor
+                                                .current()
+                                                .unwrap()
+                                                .0
+                                                .assign_mut()
+                                                .unwrap()
+                                                .expr
+                                                .binary_mut()
+                                                .unwrap()
+                                                .lhs = new_lhs;
+                                            cursor
+                                                .current()
+                                                .unwrap()
+                                                .0
+                                                .assign_mut()
+                                                .unwrap()
+                                                .expr
+                                                .binary_mut()
+                                                .unwrap()
+                                                .rhs = inner_rhs.clone();
+
+                                            step_forward = true;
+                                        },
+                                        _ => todo!()
+                                    }
+                                    (Expression::Binary(Binary { lhs: inner_lhs, op: inner_op, rhs: inner_rhs }), Expression::Unary(Unary(unary))) => match (inner_lhs,inner_op,inner_rhs,unary) {
+                                        (Value::Ident(Ident(a)), Op::Add, Value::Literal(Literal(b)),Value::Literal(Literal(c))) => {
+                                            assert_eq!(context.variables.get(a),Some(&Expression::Unknown(Unknown)));
+
+                                            let new_rhs = Value::Literal(Literal(b + c));
+                                            let new_expr = Expression::Binary(Binary { lhs: inner_lhs.clone(), op: op.clone(), rhs: new_rhs.clone() });
+                                            context.variables.insert(
+                                                assign_ident.0.clone(),
+                                                new_expr.clone(),
+                                            );
+                                            cursor
+                                                .current()
+                                                .unwrap()
+                                                .0
+                                                .assign_mut()
+                                                .unwrap()
+                                                .expr = new_expr;
+
+                                            step_forward = true;
+                                        },
+                                        (Value::Literal(Literal(a)),Op::Add,Value::Ident(Ident(b)), Value::Literal(Literal(c))) => {
+                                            assert_eq!(context.variables.get(b),Some(&Expression::Unknown(Unknown)));
+
+                                            let new_rhs = Value::Literal(Literal(a+c));
+                                            let new_expr = Expression::Binary(Binary { lhs: inner_rhs.clone(), op: op.clone(), rhs: new_rhs.clone() });
+                                            context.variables.insert(
+                                                assign_ident.0.clone(),
+                                                new_expr.clone(),
+                                            );
+
+                                            cursor
+                                                .current()
+                                                .unwrap()
+                                                .0
+                                                .assign_mut()
+                                                .unwrap()
+                                                .expr = new_expr;
+
+                                            step_forward = true;
+                                        }
+                                        _ => todo!()
+                                    }
                                     (Expression::Unary(Unary(x)), Expression::Unary(Unary(y))) => {
                                         match (x, y) {
                                             // If the lhs identifier has a known literal value and the rhs identifier has a known literal value.
@@ -258,7 +333,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                                 Value::Literal(Literal(a)),
                                                 Value::Literal(Literal(b)),
                                             ) => {
-                                                let c = binary.op.run(*a, *b);
+                                                let c = op.run(*a,*b);
                                                 context.variables.insert(
                                                     assign_ident.0.clone(),
                                                     Expression::Unary(Unary(Value::Literal(
@@ -266,9 +341,9 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                                     ))),
                                                 );
 
-                                                // Remove current + Step
+                                                // Remove current
                                                 cursor.remove_current();
-                                            }
+                                            },
                                             (a, b) => {
                                                 cursor
                                                     .current()
@@ -292,71 +367,48 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                                     .rhs = b.clone();
                                                 // The value cannot be evaluated at compile-time thus we remove
                                                 // the variable from the context.
-                                                context.variables.remove(&assign_ident.0);
+                                                context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
                                                 step_forward = true;
-                                            }
+                                            },
                                         }
                                     }
-                                    _ => todo!(),
-                                },
-                                (Some(x), None) => match x {
-                                    Expression::Unary(Unary(u)) => {
-                                        // The lhs identifier, can be an alias, unknown or a known literal.
-                                        let new_value = match u {
-                                            // Alias or unwrap for unknown.
-                                            Value::Ident(y) => context
-                                                .variables
-                                                .get(&y.0)
-                                                .cloned()
-                                                .unwrap_or(x.clone()),
-                                            // Known literal.
-                                            Value::Literal(_) => x.clone(),
-                                        };
+                                    (Expression::Unary(Unary(u)),Expression::Unknown(_)) => {
+                                        let new_expr = Expression::Binary(Binary { lhs: u.clone(), op: op.clone(), rhs: rhs.clone() });
 
                                         cursor.current().unwrap().0.assign_mut().unwrap().expr =
-                                            new_value;
+                                            new_expr.clone();
 
                                         // The value cannot be evaluated at compile-time thus we remove
                                         // the variable from the context.
-                                        context.variables.remove(&assign_ident.0);
+                                        context.variables.insert(assign_ident.0.clone(), new_expr);
+                                        step_forward = true;
+                                    },
+                                    (Expression::Unknown(_), Expression::Unary(Unary(u))) => {
+                                        let new_expr = Expression::Binary(Binary { lhs: lhs.clone(), op: op.clone(), rhs: u.clone() });
+
+                                        cursor.current().unwrap().0.assign_mut().unwrap().expr =
+                                            new_expr.clone();
+
+                                        // The value cannot be evaluated at compile-time thus we remove
+                                        // the variable from the context.
+                                        context.variables.insert(assign_ident.0.clone(), new_expr);
+                                        step_forward = true;
+                                    },
+                                    (Expression::Unknown(_), Expression::Unknown(_)) => {
+                                        // The value cannot be evaluated at compile-time thus we remove
+                                        // the variable from the context.
+                                        context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
                                         step_forward = true;
                                     }
                                     _ => todo!(),
                                 },
-                                (None, Some(y)) => match y {
-                                    Expression::Unary(Unary(u)) => {
-                                        // The rhs identifier, can be an alias, unknown or a known literal.
-                                        let new_value = match u {
-                                            // Alias or unwrap for unknown.
-                                            Value::Ident(x) => context
-                                                .variables
-                                                .get(&x.0)
-                                                .cloned()
-                                                .unwrap_or(y.clone()),
-                                            // Known literal.
-                                            Value::Literal(_) => y.clone(),
-                                        };
-
-                                        cursor.current().unwrap().0.assign_mut().unwrap().expr =
-                                            new_value;
-
-                                        // The value cannot be evaluated at compile-time thus we remove
-                                        // the variable from the context.
-                                        context.variables.remove(&assign_ident.0);
-                                        step_forward = true;
-                                    }
-                                    _ => todo!(),
-                                },
-                                (None, None) => {
-                                    // The value cannot be evaluated at compile-time thus we remove
-                                    // the variable from the context.
-                                    context.variables.remove(&assign_ident.0);
-                                    step_forward = true;
-                                }
-                                _ => todo!(),
+                                _ => todo!()
                             }
                         }
-                        // TODO Handle the other binary cases
+                        (Value::Literal(Literal(a)), Op::Add, Value::Literal(Literal(b))) => {
+                            context.variables.insert(assign_ident.0.clone(),Expression::Unary(Unary(Value::Literal(Literal(a+b)))));
+                            cursor.remove_current();
+                        }
                         _ => todo!(),
                     },
                     Expression::Call(call) => {
