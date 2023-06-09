@@ -9,7 +9,7 @@ use tracing::info;
 #[derive(Debug, Default)]
 pub struct Context {
     /// The values of variables.
-    variables: HashMap<String, Value>,
+    variables: HashMap<String, Expression>,
     /// The definitions of functions.
     functions: HashMap<String, Function>,
     /// When inline variables from a function, we use a prefix prevent identifier collisions.
@@ -123,11 +123,17 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                 Value::Ident(ident) => {
                     // Apply context prefix.
                     let ident = context.prefix(&ident.0).unwrap();
-                    let inner_value = context
-                        .variables
-                        .get(&ident)
-                        .cloned()
-                        .unwrap_or(Value::Ident(Ident(ident)));
+                    let inner_value = match context.variables.get(&ident) {
+                        Some(Expression::Binary(Binary {
+                            lhs: Value::Literal(_),
+                            op: _,
+                            rhs: Value::Literal(_),
+                        })) => unreachable!(),
+                        Some(Expression::Unary(Unary(
+                            v @ Value::Ident(_) | v @ Value::Literal(_),
+                        ))) => v.clone(),
+                        _ => Value::Ident(Ident(ident)),
+                    };
                     cursor.current().unwrap().0.return_mut().unwrap().0 = inner_value.clone();
 
                     info!("return");
@@ -179,16 +185,16 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                         step_forward = true;
                     }
                     Expression::Unary(unary) => match &unary.0 {
-                        literal @ Value::Literal(_) => {
+                        Value::Literal(_) => {
                             // Any assignment where the assigned value is known can be removed and the value
                             // inlined.
                             cursor.remove_current();
 
                             context
                                 .variables
-                                .insert(assign_ident.0.clone(), literal.clone());
+                                .insert(assign_ident.0.clone(), assign.expr.clone());
                         }
-                        identifier @ Value::Ident(ident) => {
+                        Value::Ident(ident) => {
                             // Apply context prefix.
                             // In return assignments (when inlining a function, we need to assign to
                             // return value) the value being assigned will have a prefix greater
@@ -206,7 +212,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                     .variables
                                     .get(&ident.0)
                                     .cloned()
-                                    .unwrap_or(identifier.clone()),
+                                    .unwrap_or(assign.expr.clone()),
                             );
                         }
                     },
@@ -245,108 +251,109 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
 
                             match (context.variables.get(&a.0), context.variables.get(&b.0)) {
                                 (Some(x), Some(y)) => match (x, y) {
-                                    // If the lhs identifier has a known literal value and the rhs identifier has a known literal value.
-                                    (Value::Literal(Literal(a)), Value::Literal(Literal(b))) => {
-                                        let c = binary.op.run(*a, *b);
-                                        context.variables.insert(
-                                            assign_ident.0.clone(),
-                                            Value::Literal(Literal(c)),
-                                        );
+                                    (Expression::Unary(Unary(x)), Expression::Unary(Unary(y))) => {
+                                        match (x, y) {
+                                            // If the lhs identifier has a known literal value and the rhs identifier has a known literal value.
+                                            (
+                                                Value::Literal(Literal(a)),
+                                                Value::Literal(Literal(b)),
+                                            ) => {
+                                                let c = binary.op.run(*a, *b);
+                                                context.variables.insert(
+                                                    assign_ident.0.clone(),
+                                                    Expression::Unary(Unary(Value::Literal(
+                                                        Literal(c),
+                                                    ))),
+                                                );
 
-                                        // Remove current + Step
-                                        cursor.remove_current();
+                                                // Remove current + Step
+                                                cursor.remove_current();
+                                            }
+                                            (a, b) => {
+                                                cursor
+                                                    .current()
+                                                    .unwrap()
+                                                    .0
+                                                    .assign_mut()
+                                                    .unwrap()
+                                                    .expr
+                                                    .binary_mut()
+                                                    .unwrap()
+                                                    .lhs = a.clone();
+                                                cursor
+                                                    .current()
+                                                    .unwrap()
+                                                    .0
+                                                    .assign_mut()
+                                                    .unwrap()
+                                                    .expr
+                                                    .binary_mut()
+                                                    .unwrap()
+                                                    .rhs = b.clone();
+                                                // The value cannot be evaluated at compile-time thus we remove
+                                                // the variable from the context.
+                                                context.variables.remove(&assign_ident.0);
+                                                step_forward = true;
+                                            }
+                                        }
                                     }
-                                    (a, b) => {
-                                        cursor
-                                            .current()
-                                            .unwrap()
-                                            .0
-                                            .assign_mut()
-                                            .unwrap()
-                                            .expr
-                                            .binary_mut()
-                                            .unwrap()
-                                            .lhs = a.clone();
-                                        cursor
-                                            .current()
-                                            .unwrap()
-                                            .0
-                                            .assign_mut()
-                                            .unwrap()
-                                            .expr
-                                            .binary_mut()
-                                            .unwrap()
-                                            .rhs = b.clone();
+                                    _ => todo!(),
+                                },
+                                (Some(x), None) => match x {
+                                    Expression::Unary(Unary(u)) => {
+                                        // The lhs identifier, can be an alias, unknown or a known literal.
+                                        let new_value = match u {
+                                            // Alias or unwrap for unknown.
+                                            Value::Ident(y) => context
+                                                .variables
+                                                .get(&y.0)
+                                                .cloned()
+                                                .unwrap_or(x.clone()),
+                                            // Known literal.
+                                            Value::Literal(_) => x.clone(),
+                                        };
+
+                                        cursor.current().unwrap().0.assign_mut().unwrap().expr =
+                                            new_value;
+
                                         // The value cannot be evaluated at compile-time thus we remove
                                         // the variable from the context.
                                         context.variables.remove(&assign_ident.0);
                                         step_forward = true;
                                     }
+                                    _ => todo!(),
                                 },
-                                (Some(x), None) => {
-                                    // The lhs identifier, can be an alias, unknown or a known literal.
-                                    let new_value = match x {
-                                        // Alias or unwrap for unknown.
-                                        z @ Value::Ident(y) => context
-                                            .variables
-                                            .get(&y.0)
-                                            .cloned()
-                                            .unwrap_or(z.clone()),
-                                        // Known literal.
-                                        y @ Value::Literal(_) => y.clone(),
-                                    };
+                                (None, Some(y)) => match y {
+                                    Expression::Unary(Unary(u)) => {
+                                        // The rhs identifier, can be an alias, unknown or a known literal.
+                                        let new_value = match u {
+                                            // Alias or unwrap for unknown.
+                                            Value::Ident(x) => context
+                                                .variables
+                                                .get(&x.0)
+                                                .cloned()
+                                                .unwrap_or(y.clone()),
+                                            // Known literal.
+                                            Value::Literal(_) => y.clone(),
+                                        };
 
-                                    cursor
-                                        .current()
-                                        .unwrap()
-                                        .0
-                                        .assign_mut()
-                                        .unwrap()
-                                        .expr
-                                        .binary_mut()
-                                        .unwrap()
-                                        .lhs = new_value;
+                                        cursor.current().unwrap().0.assign_mut().unwrap().expr =
+                                            new_value;
 
-                                    // The value cannot be evaluated at compile-time thus we remove
-                                    // the variable from the context.
-                                    context.variables.remove(&assign_ident.0);
-                                    step_forward = true;
-                                }
-                                (None, Some(y)) => {
-                                    // The rhs identifier, can be an alias, unknown or a known literal.
-                                    let new_value = match y {
-                                        // Alias or unwrap for unknown.
-                                        z @ Value::Ident(x) => context
-                                            .variables
-                                            .get(&x.0)
-                                            .cloned()
-                                            .unwrap_or(z.clone()),
-                                        // Known literal.
-                                        x @ Value::Literal(_) => x.clone(),
-                                    };
-
-                                    cursor
-                                        .current()
-                                        .unwrap()
-                                        .0
-                                        .assign_mut()
-                                        .unwrap()
-                                        .expr
-                                        .binary_mut()
-                                        .unwrap()
-                                        .rhs = new_value;
-
-                                    // The value cannot be evaluated at compile-time thus we remove
-                                    // the variable from the context.
-                                    context.variables.remove(&assign_ident.0);
-                                    step_forward = true;
-                                }
+                                        // The value cannot be evaluated at compile-time thus we remove
+                                        // the variable from the context.
+                                        context.variables.remove(&assign_ident.0);
+                                        step_forward = true;
+                                    }
+                                    _ => todo!(),
+                                },
                                 (None, None) => {
                                     // The value cannot be evaluated at compile-time thus we remove
                                     // the variable from the context.
                                     context.variables.remove(&assign_ident.0);
                                     step_forward = true;
                                 }
+                                _ => todo!(),
                             }
                         }
                         // TODO Handle the other binary cases
@@ -508,7 +515,7 @@ fn inline_call(
         .filter_map(|(from, to)| {
             // let inline_ident = Context::prefix_free(context.prefix + 1, &to.0).unwrap();
             match from {
-                Value::Literal(_) => Some((to.0.clone(), from.clone())),
+                Value::Literal(_) => Some((to.0.clone(), Expression::Unary(Unary(from.clone())))),
                 Value::Ident(Ident(ident)) => context
                     .variables
                     .get(ident)
