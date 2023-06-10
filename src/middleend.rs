@@ -1,10 +1,16 @@
 use crate::frontend::*;
 use std::{
     collections::{HashMap, LinkedList},
-    time::{Duration, Instant},
+    time::{Duration, Instant}, sync::atomic::AtomicUsize,
 };
 
-use tracing::info;
+use tracing::{debug,info};
+
+fn new_unknown_ident() -> String {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    const PREFIX: &str = "!";
+    format!("{PREFIX}{:x}",COUNTER.fetch_add(1,std::sync::atomic::Ordering::SeqCst))
+}
 
 #[derive(Debug, Default)]
 pub struct Context {
@@ -37,15 +43,16 @@ pub enum Control {
 const MAX_FUNCTION_INLINING_TIME: Duration = Duration::from_secs(1);
 
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
-// #[instrument]
+#[tracing::instrument(skip_all)]
 pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Option<Control> {
     #[cfg(debug_assertions)]
     let mut outer_guard = 0;
 
     // TODO Make this less awkward.
     loop {
-        info!("{:?}", cursor.current());
-        info!("{:?}", context.variables);
+        debug!("{:?}", context.variables);
+        debug!("{:?}", cursor.current());
+        
 
         if cursor.current().is_none() {
             break;
@@ -53,9 +60,9 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
 
         debug_assert!(cursor.current().is_some());
 
-        // info!("current: {:?}", cursor.current());
-        // info!("next: {:?}", cursor.peek_next());
-        // info!("prev: {:?}", cursor.peek_prev());
+        // debug!("current: {:?}", cursor.current());
+        // debug!("next: {:?}", cursor.peek_next());
+        // debug!("prev: {:?}", cursor.peek_prev());
 
         match cursor.current().unwrap().0.clone() {
             // TODO Properly handle loops
@@ -77,7 +84,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                     }
                     let mut list = l.0.clone();
                     let control = evaluate(list.cursor_front_mut(), context);
-                    info!("control: {control:?}");
+                    debug!("control: {control:?}");
                     inline.append(&mut list);
                     match control {
                         None => continue,
@@ -136,11 +143,11 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                     };
                     cursor.current().unwrap().0.return_mut().unwrap().0 = inner_value.clone();
 
-                    info!("return");
+                    debug!("return");
                     cursor.split_after();
-                    info!("{:?}", cursor.current());
+                    debug!("{:?}", cursor.current());
                     cursor.move_next();
-                    info!("{:?}", cursor.current());
+                    debug!("{:?}", cursor.current());
                     return Some(Control::Return(inner_value));
                     // TODO Remove all statements before this in scope which do not change the identifier.
                 }
@@ -151,7 +158,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                 }
             },
             StatementType::Break(_) => {
-                info!("break");
+                debug!("break");
                 cursor.split_after();
                 // TODO There are plenty circumstances where loops are not inlined and breaks cannot
                 // be removed. For these (which represent most loops, this is incorrect and will
@@ -179,9 +186,12 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
 
                 match &assign.expr {
                     Expression::Unknown(_) => {
-                        // The value cannot be evaluated at compile-time thus we remove
-                        // the variable from the context.
-                        context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
+                        let unknown_ident = new_unknown_ident();
+                        
+                        
+                        context.variables.insert(assign_ident.0.clone(),Expression::Unary(Unary(Value::Ident(Ident(unknown_ident.clone())))));
+                        context.variables.insert(unknown_ident.clone(),Expression::Unknown(Unknown));
+                        cursor.current().unwrap().0.assign_mut().unwrap().ident.0 = unknown_ident;
                         step_forward = true;
                     }
                     Expression::Unary(unary) => match &unary.0 {
@@ -204,15 +214,24 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
 
                             cursor.remove_current();
 
+                            loop {
+                                match 
+                            }
+
+                            let new_expr = match context.variables.get(&ident.0).unwrap() {
+                                inner_unary @ Expression::Unary(Unary(inner_value)) => match inner_value {
+                                    Value::Ident(_) | Value::Literal(_) => inner_unary.clone(),
+                                    _ => todo!()
+                                }
+                                Expression::Unknown(Unknown) => Expression::Unary(Unary(Value::Ident(ident))),
+                                _ => todo!()
+                            };
+
                             // Insert the value of `ident` into the context under `assign_ident`, if
                             // no value is found, insert the value as the identifier `ident`.
                             context.variables.insert(
                                 assign_ident.0.clone(),
-                                context
-                                    .variables
-                                    .get(&ident.0)
-                                    .cloned()
-                                    .unwrap_or(assign.expr.clone()),
+                                new_expr,
                             );
                         }
                     },
@@ -252,12 +271,13 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                             match (&context.variables.get(&a.0).cloned(), &context.variables.get(&b.0).cloned()) {
                                 (Some(x), Some(y)) => match (x, y) {
                                     (Expression::Unary(Unary(unary)), Expression::Binary(Binary { lhs: inner_lhs, op: inner_op, rhs: inner_rhs })) => match (unary,inner_lhs,inner_op,inner_rhs){
-                                        (Value::Literal(Literal(a)), Value::Ident(Ident(_)), Op::Add, Value::Literal(Literal(c))) => {
+                                        (Value::Literal(Literal(a)), Value::Ident(Ident(b)), Op::Add, Value::Literal(Literal(c))) => {
                                             let new_lhs = Value::Literal(Literal(a+c));
-                                            let new_expr = Expression::Binary(Binary { lhs: new_lhs.clone(), op: op.clone(), rhs: rhs.clone() });
+                                            // assert_eq!(context.variables.get(b),Some(Expression::Unknown));
+                                            let new_expr = Expression::Binary(Binary { lhs: new_lhs.clone(), op: op.clone(), rhs: inner_rhs.clone() });
                                             context.variables.insert(
                                                 assign_ident.0.clone(),
-                                                new_expr,
+                                                new_expr.clone(),
                                             );
                                             cursor
                                                 .current()
@@ -265,20 +285,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                                 .0
                                                 .assign_mut()
                                                 .unwrap()
-                                                .expr
-                                                .binary_mut()
-                                                .unwrap()
-                                                .lhs = new_lhs;
-                                            cursor
-                                                .current()
-                                                .unwrap()
-                                                .0
-                                                .assign_mut()
-                                                .unwrap()
-                                                .expr
-                                                .binary_mut()
-                                                .unwrap()
-                                                .rhs = inner_rhs.clone();
+                                                .expr = new_expr;
 
                                             step_forward = true;
                                         },
@@ -329,10 +336,7 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                     (Expression::Unary(Unary(x)), Expression::Unary(Unary(y))) => {
                                         match (x, y) {
                                             // If the lhs identifier has a known literal value and the rhs identifier has a known literal value.
-                                            (
-                                                Value::Literal(Literal(a)),
-                                                Value::Literal(Literal(b)),
-                                            ) => {
+                                            (Value::Literal(Literal(a)),Value::Literal(Literal(b))) => {
                                                 let c = op.run(*a,*b);
                                                 context.variables.insert(
                                                     assign_ident.0.clone(),
@@ -344,32 +348,25 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                                 // Remove current
                                                 cursor.remove_current();
                                             },
-                                            (a, b) => {
-                                                cursor
-                                                    .current()
-                                                    .unwrap()
-                                                    .0
-                                                    .assign_mut()
-                                                    .unwrap()
-                                                    .expr
-                                                    .binary_mut()
-                                                    .unwrap()
-                                                    .lhs = a.clone();
-                                                cursor
-                                                    .current()
-                                                    .unwrap()
-                                                    .0
-                                                    .assign_mut()
-                                                    .unwrap()
-                                                    .expr
-                                                    .binary_mut()
-                                                    .unwrap()
-                                                    .rhs = b.clone();
-                                                // The value cannot be evaluated at compile-time thus we remove
-                                                // the variable from the context.
+                                            (Value::Ident(Ident(a)), Value::Literal(Literal(b))) => {
+                                                assert_eq!(context.variables.get(a),Some(&Expression::Unknown(Unknown)));
+                                                let new_expr = Expression::Binary(Binary {
+                                                    lhs: Value::Ident(Ident(a.clone())),
+                                                    op: Op::Add,
+                                                    rhs: Value::Literal(Literal(b.clone()))
+                                                });
                                                 context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
+                                                cursor
+                                                    .current()
+                                                    .unwrap()
+                                                    .0
+                                                    .assign_mut()
+                                                    .unwrap()
+                                                    .expr = new_expr;
+
                                                 step_forward = true;
-                                            },
+                                            }
+                                            _ => todo!()
                                         }
                                     }
                                     (Expression::Unary(Unary(u)),Expression::Unknown(_)) => {
@@ -378,8 +375,8 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                         cursor.current().unwrap().0.assign_mut().unwrap().expr =
                                             new_expr.clone();
 
-                                        // The value cannot be evaluated at compile-time thus we remove
-                                        // the variable from the context.
+                                        
+                                        
                                         context.variables.insert(assign_ident.0.clone(), new_expr);
                                         step_forward = true;
                                     },
@@ -389,14 +386,14 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
                                         cursor.current().unwrap().0.assign_mut().unwrap().expr =
                                             new_expr.clone();
 
-                                        // The value cannot be evaluated at compile-time thus we remove
-                                        // the variable from the context.
+                                        
+                                        
                                         context.variables.insert(assign_ident.0.clone(), new_expr);
                                         step_forward = true;
                                     },
                                     (Expression::Unknown(_), Expression::Unknown(_)) => {
-                                        // The value cannot be evaluated at compile-time thus we remove
-                                        // the variable from the context.
+                                        
+                                        
                                         context.variables.insert(assign_ident.0.clone(),assign.expr.clone());
                                         step_forward = true;
                                     }
@@ -543,12 +540,13 @@ pub fn evaluate(mut cursor: CursorMut<Statement>, context: &mut Context) -> Opti
 //         Expression::Unary(Unary(ret));
 // }
 
+#[tracing::instrument(skip_all)]
 fn inline_call(
     cursor: &mut CursorMut<Statement>,
     context: &mut Context,
     call: &Call,
 ) -> Option<Control> {
-    info!("call");
+    debug!("call");
     let function = context
         .functions
         .get(&call.ident.0)
@@ -564,21 +562,17 @@ fn inline_call(
         .args
         .iter()
         .zip(function.args.iter())
-        .filter_map(|(from, to)| {
-            // let inline_ident = Context::prefix_free(context.prefix + 1, &to.0).unwrap();
-            match from {
-                Value::Literal(_) => Some((to.0.clone(), Expression::Unary(Unary(from.clone())))),
-                Value::Ident(Ident(ident)) => context
-                    .variables
-                    .get(ident)
-                    .map(|value| (to.0.clone(), value.clone())),
-            }
-        })
-        .collect::<HashMap<_, _>>();
+        .map(|(from, to)| {
+            let to_ident = Context::prefix_free(context.prefix + 1, &to.0).unwrap();
+            (to_ident.clone(),match from {
+                Value::Literal(_) => Expression::Unary(Unary(from.clone())),
+                Value::Ident(Ident(ident)) => context.variables.get(ident).unwrap().clone(),
+            })
+        });
 
     // Functions are automatically passed.
-    let mut function_context = Context {
-        variables: function_variables,
+    let mut function_context: Context = Context {
+        variables: context.variables.clone().into_iter().chain(function_variables).collect(),
         functions: context.functions.clone(),
         prefix: context.prefix,
     };
@@ -596,12 +590,16 @@ fn inline_call(
         })
         .collect::<LinkedList<_>>();
 
+    info!("evaluating argument assignment statements");
+
     // Evaluate argument assignments.
     let control = evaluate(
         function_statements.cursor_front_mut(),
         &mut function_context,
     );
     debug_assert_eq!(control, None);
+
+    info!("evaluating function statements");
 
     // With a higher prefix, evaluate the function statements (starting from the 1st statement in
     // the function but considering the argument assignment statements).
@@ -623,6 +621,8 @@ fn inline_call(
 
 #[cfg(test)]
 mod tests {
+    use tracing::metadata::LevelFilter;
+
     use super::*;
 
     #[test]
@@ -630,6 +630,7 @@ mod tests {
         tracing_subscriber::fmt::fmt()
             .with_file(true)
             .with_line_number(true)
+            .with_max_level(LevelFilter::TRACE)
             .init();
 
         let string = std::fs::read_to_string("./example-input.txt").unwrap();
