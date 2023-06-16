@@ -1,29 +1,7 @@
 x = ?
-y = 2
-y = x
-a = 2
-b = 3
-c = a + b
-d = ?
+y = 2 + 3
+x = y
 if 1
-    c = d + c
-    d = 4
-a = d
-loop
-    a = a + c
-    if 1
-        break
-def triple_add(a,b,c,)
-    one = a + b
-    two = one + c
-    if 0
-        two = triple_add(two,two,two,)
-    return two
-a = triple_add(a,1,b,)
-e = c + d
-e = e + a
-x = ?
-e = x + e
-if 1
-    return e
-return 1
+    c = y + x
+    x = c
+return x

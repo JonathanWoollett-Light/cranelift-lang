@@ -1,7 +1,9 @@
 use colored::Colorize;
-use std::collections::LinkedList;
 use std::fmt;
 use std::string::ToString;
+
+pub type LiteralValue = i32;
+
 /// Keyword enum to ensure consistency
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum KeyWord {
@@ -28,14 +30,11 @@ impl fmt::Display for KeyWord {
     }
 }
 
-pub type LiteralValue = i32;
-
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Break;
-impl Break {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        KeyWord::Break.to_string()
+impl fmt::Display for Break {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", KeyWord::Break)
     }
 }
 
@@ -51,25 +50,26 @@ impl Call {
             args: Vec::new(),
         }
     }
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
+}
+impl fmt::Display for Call {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
             "{}({})",
-            self.ident.print(n).yellow(),
+            self.ident,
             self.args
                 .iter()
-                .map(|a| format!("{},", a.print(n)))
+                .map(|arg| format!("{arg},"))
                 .collect::<String>()
         )
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Loop(pub LinkedList<Statement>);
-impl Loop {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!("{}{}", KeyWord::Loop, print(&self.0, n + 1))
+pub struct Loop;
+impl fmt::Display for Loop {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", KeyWord::Loop)
     }
 }
 
@@ -77,30 +77,27 @@ impl Loop {
 pub struct Function {
     pub ident: Ident,
     pub args: Vec<Ident>,
-    pub inner: LinkedList<Statement>,
 }
-impl Function {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{} {}({}){}",
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {}({})",
             KeyWord::Def,
-            self.ident.print(n).yellow(),
+            self.ident,
             self.args
                 .iter()
-                .map(|x| format!("{},", x.print(n)))
-                .collect::<String>(),
-            print(&self.inner, n + 1)
+                .map(|arg| format!("{arg},"))
+                .collect::<String>()
         )
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Return(pub Value);
-impl Return {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!("{} {}", KeyWord::Return, self.0.print(n))
+impl fmt::Display for Return {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", KeyWord::Return, self.0)
     }
 }
 
@@ -109,27 +106,19 @@ pub struct Assign {
     pub ident: Ident,
     pub expr: Expression,
 }
-impl Assign {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!("{} = {}", self.ident.print(n), self.expr.print(n),)
+impl fmt::Display for Assign {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.ident, self.expr)
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct If {
     pub cond: Value,
-    pub inner: LinkedList<Statement>,
 }
-impl If {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{} {}{}",
-            KeyWord::If,
-            self.cond.print(n),
-            print(&self.inner, n + 1)
-        )
+impl fmt::Display for If {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {}", KeyWord::If, self.cond)
     }
 }
 
@@ -139,13 +128,6 @@ pub enum Value {
     Ident(Ident),
 }
 impl Value {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        match self {
-            Self::Literal(l) => l.print(n),
-            Self::Ident(i) => i.print(n),
-        }
-    }
     pub fn ident_mut(&mut self) -> Option<&mut Ident> {
         match self {
             Self::Ident(x) => Some(x),
@@ -159,30 +141,36 @@ impl Value {
         }
     }
 }
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Literal(literal) => write!(f, "{literal}"),
+            Self::Ident(ident) => write!(f, "{ident}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Literal(pub LiteralValue);
-impl Literal {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        self.0.to_string().blue().to_string()
+impl fmt::Display for Literal {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0.to_string().blue())
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Ident(pub String);
-impl Ident {
-    #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        self.0.clone()
+impl fmt::Display for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Unknown;
-impl Unknown {
-    fn print(&self, _n: usize) -> String {
-        "?".truecolor(255, 165, 0).to_string()
+impl fmt::Display for Unknown {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", "?".truecolor(255, 165, 0))
     }
 }
 
@@ -194,15 +182,6 @@ pub enum Expression {
     Unknown(Unknown),
 }
 impl Expression {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        match self {
-            Self::Unary(x) => x.print(n),
-            Self::Binary(x) => x.print(n),
-            Self::Call(c) => c.print(n),
-            Self::Unknown(c) => c.print(n),
-        }
-    }
     pub fn unary_mut(&mut self) -> Option<&mut Unary> {
         match self {
             Self::Unary(x) => Some(x),
@@ -228,20 +207,23 @@ impl Expression {
         }
     }
 }
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Statement(pub StatementType);
-impl Statement {
-    pub const INDENT: &str = "    ";
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!("\n{}{}", Self::INDENT.repeat(n), self.0.print(n),)
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Unary(x) => write!(f, "{x}"),
+            Self::Binary(x) => write!(f, "{x}"),
+            Self::Call(x) => write!(f, "{x}"),
+            Self::Unknown(x) => write!(f, "{x}"),
+        }
     }
 }
 
-#[must_use]
-pub fn print(list: &LinkedList<Statement>, n: usize) -> String {
-    list.iter().map(|statement| statement.print(n)).collect()
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Statement(pub StatementType);
+impl fmt::Display for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -255,18 +237,6 @@ pub enum StatementType {
     Function(Function),
 }
 impl StatementType {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        match self {
-            Self::Assign(a) => a.print(n),
-            Self::Loop(l) => l.print(n),
-            Self::If(i) => i.print(n),
-            Self::Call(c) => c.print(n),
-            Self::Break(b) => b.print(n),
-            Self::Function(f) => f.print(n),
-            Self::Return(r) => r.print(n),
-        }
-    }
     pub fn loop_mut(&mut self) -> Option<&mut Loop> {
         match self {
             Self::Loop(x) => Some(x),
@@ -291,6 +261,12 @@ impl StatementType {
             _ => None,
         }
     }
+    pub fn assign(&self) -> Option<&Assign> {
+        match self {
+            Self::Assign(x) => Some(x),
+            _ => None,
+        }
+    }
     pub fn assign_mut(&mut self) -> Option<&mut Assign> {
         match self {
             Self::Assign(x) => Some(x),
@@ -310,13 +286,25 @@ impl StatementType {
         }
     }
 }
+impl fmt::Display for StatementType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Assign(x) => write!(f, "{x}"),
+            Self::Loop(x) => write!(f, "{x}"),
+            Self::If(x) => write!(f, "{x}"),
+            Self::Call(x) => write!(f, "{x}"),
+            Self::Break(x) => write!(f, "{x}"),
+            Self::Function(x) => write!(f, "{x}"),
+            Self::Return(x) => write!(f, "{x}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Unary(pub Value);
-impl Unary {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        self.0.print(n)
+impl fmt::Display for Unary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -326,15 +314,9 @@ pub struct Binary {
     pub op: Op,
     pub rhs: Value,
 }
-impl Binary {
-    #[must_use]
-    pub fn print(&self, n: usize) -> String {
-        format!(
-            "{} {} {}",
-            self.lhs.print(n),
-            self.op.print(n),
-            self.rhs.print(n)
-        )
+impl fmt::Display for Binary {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {} {}", self.lhs, self.op, self.rhs)
     }
 }
 
@@ -347,21 +329,22 @@ pub enum Op {
 }
 impl Op {
     #[must_use]
-    pub fn print(&self, _n: usize) -> String {
-        String::from(match self {
-            Self::Add => "+",
-            Self::Sub => "-",
-            Self::Mul => "*",
-            Self::Div => "/",
-        })
-    }
-    #[must_use]
     pub fn run(&self, a: LiteralValue, b: LiteralValue) -> LiteralValue {
         match self {
             Self::Add => a + b,
             Self::Sub => a - b,
             Self::Mul => a * b,
             Self::Div => a / b,
+        }
+    }
+}
+impl fmt::Display for Op {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Add => write!(f, "+"),
+            Self::Sub => write!(f, "-"),
+            Self::Mul => write!(f, "*"),
+            Self::Div => write!(f, "/"),
         }
     }
 }

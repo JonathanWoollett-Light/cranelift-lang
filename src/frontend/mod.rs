@@ -1,60 +1,106 @@
 mod ast;
-use std::collections::LinkedList;
+use linked_syntax_tree::SyntaxTree;
 
 pub use ast::*;
+use std::cmp::Ordering;
+use std::io::{BufRead, Read};
+
+pub fn get_indent(bytes: &[u8]) -> usize {
+    let mut indent = 0;
+    while let Some(b' ') = bytes.get(indent) {
+        indent += 1;
+    }
+    indent
+}
+
+pub fn statements(text: impl Read) -> SyntaxTree<Statement> {
+    let mut lines = std::io::BufReader::new(text).lines();
+    let mut tree = SyntaxTree::default();
+    let mut cursor = tree.cursor_mut();
+    let mut last_indent = 0;
+
+    if let Some(line_result) = lines.next() {
+        let line = line_result.unwrap().into_bytes();
+        let indent = get_indent(&line);
+
+        let string = std::str::from_utf8(&line[indent..]).unwrap();
+        let statement = parser::statement(string).unwrap();
+
+        cursor.insert_next(statement);
+
+        for line_result in lines {
+            let line = line_result.unwrap().into_bytes();
+            let indent = get_indent(&line);
+
+            let string = std::str::from_utf8(&line[indent..]).unwrap();
+            let statement = parser::statement(string).unwrap();
+
+            match indent.cmp(&last_indent) {
+                Ordering::Greater => {
+                    cursor.insert_child(statement);
+                    cursor.move_child();
+                }
+                Ordering::Equal => {
+                    cursor.insert_next(statement);
+                    cursor.move_next();
+                }
+                Ordering::Less => {
+                    cursor.move_parent();
+                    cursor.insert_next(statement);
+                    cursor.move_next();
+                }
+            }
+            last_indent = indent;
+        }
+    }
+
+    tree
+}
 
 peg::parser!(pub grammar parser() for str {
-    pub rule statements(n:usize) -> LinkedList<Statement>
-        = indent(n) a:statement_type(n) "\n"* b:statements(n) {
-            let mut list = LinkedList::from([Statement(a)]);
-            list.extend(b);
-            list
-        }
-            / { LinkedList::new() }
+    pub rule statement() -> Statement = s:statement_type() { Statement(s) }
 
-    pub rule statement_type(n:usize) -> StatementType
-        = i:if_rule(n) { StatementType::If(i) }
-            / l:simple_loop(n) { StatementType::Loop(l) }
-            / a:assignment(n) { StatementType::Assign(a) }
+    rule statement_type() -> StatementType
+        = i:if_rule() { StatementType::If(i) }
+            / l:loop() { StatementType::Loop(l) }
+            / a:assignment() { StatementType::Assign(a) }
             / c:call() { StatementType::Call(c) }
-            / f:function(n) { StatementType::Function(f) }
-            / "break" { StatementType::Break(Break) }
-            / "return" _ v:value() { StatementType::Return(Return(v)) }
+            / f:function() { StatementType::Function(f) }
+            / b:break() { StatementType::Break(b) }
+            / r:return() { StatementType::Return(r) }
 
-    pub rule if_rule(n:usize) -> If
-        = "if" _ cond:value() "\n" then:statements(n+1) {
-            If {
-                cond,
-                inner: then
-            }
-        }
+    rule if_rule() -> If = "if" _ cond:value() { If { cond } }
 
-    rule simple_loop(n:usize) -> Loop
-        = "loop" "\n" s:statements(n+1) { Loop(s) }
+    rule loop() -> Loop = "loop" { Loop }
 
-    rule assignment(n:usize) -> Assign
+    rule break() -> Break = "break" { Break }
+
+    rule return() -> Return = "return" _ v:value() { Return(v) }
+
+    rule assignment() -> Assign
         = ident:identifier() _ "=" _ expr:expression() { Assign { ident, expr } }
 
     rule expression() -> Expression
-        = lhs:value() _ op:op() _ rhs:value() {
-            Expression::Binary(Binary{
-                lhs, op, rhs
-            })
-        }
+        = b:binary() { Expression::Binary(b) }
             / c:call() { Expression::Call(c) }
-            / v:value() { Expression::Unary(Unary(v)) }
-            / "?" { Expression::Unknown(Unknown) }
+            / u:unknown() { Expression::Unknown(u) }
+            / u:unary() { Expression::Unary(u) }
+
+    rule unknown() -> Unknown = "?" { Unknown }
+    rule unary() -> Unary = v:value() { Unary(v) }
+    rule binary() -> Binary
+        = lhs:value() _ op:op() _ rhs:value() { Binary { lhs, op,rhs } }
+    rule call() -> Call
+        = ident:identifier() "(" args:((v:value() "," {v})*) ")" { Call { ident, args } }
 
     rule value() -> Value
         = i:identifier() { Value::Ident(i) }
             / l:literal() { Value::Literal(l) }
 
-    rule call() -> Call
-        = ident:identifier() "(" args:((v:value() "," {v})*) ")" { Call { ident, args } }
 
-    rule function(n:usize) -> Function
-        = "def" _ ident:identifier() "(" args:((arg:identifier() "," {arg})*) ")" "\n"
-        s:statements(n+1) { Function { ident, args, inner: s} }
+
+    rule function() -> Function
+        = "def" _ ident:identifier() "(" args:((arg:identifier() "," {arg})*) ")" { Function { ident, args } }
 
     rule op() -> Op
         = "+" { Op::Add }
@@ -64,13 +110,10 @@ peg::parser!(pub grammar parser() for str {
 
     // TODO Prevent users using '_' to start variables.
     rule identifier() -> Ident
-        =  n:$(['a'..='z' | 'A'..='Z' | '_']+) { Ident(String::from(n)) }
-        / expected!("identifier")
+        =  s:$(['a'..='z' | 'A'..='Z' | '_']+) { Ident(String::from(s)) }
 
     rule literal() -> Literal
-        = n:$(['0'..='9']+) { Literal(n.parse().unwrap()) }
-
-    rule indent(n:usize) = quiet!{"    "*<{n}>}
+        = l:$(['0'..='9']+) { Literal(l.parse().unwrap()) }
 
     rule _() =  quiet!{" "}
 });
@@ -81,8 +124,8 @@ mod tests {
 
     #[test]
     fn front() {
-        let string = std::fs::read_to_string("./example-input.txt").unwrap();
-        let statement = parser::statements(&string, 0).unwrap();
-        println!("{}", print(&statement, 0));
+        let file = std::fs::File::open("./example-input.txt").unwrap();
+        let tree = statements(file);
+        println!("{tree}");
     }
 }
