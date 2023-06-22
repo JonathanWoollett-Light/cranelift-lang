@@ -23,20 +23,40 @@ pub fn evaluate_tree(tree: &mut SyntaxTree<Statement>) {
             assert!(guard < 100);
         }
 
+        
+
         // Split the tree to get a cursor at the previous node we can use to explore previous
         // statements while maintaining a mutable cursor at the current node we can use to update
         // the statement.
-        let before_current = cursor.get_preceding().map(Preceding::unwrap);
-        let before_preceding = before_current.and_then(|c| unsafe { c.as_ref().preceding });
-        let before = cursor.split_before();
-        let mut before_cursor = unsafe { Cursor::new(before_preceding, before_current, &before) };
+        
+        
+        // println!("current: {:?}",cursor.current());
+        // println!("-------------------------\n{}",unsafe { cursor.tree.as_ref().clone() });
+        // println!("cursor: {cursor:?}");
+
+        let mut before = cursor.split();
+
+        // println!("cursor: {cursor:?}");
+        // println!("current: {:?}",cursor.current());
+        // println!("before: {before:?}");
+        // println!("-------------------------\n{before}");
+
+
+        // let before_current = cursor.get_preceding().map(Preceding::unwrap);
+        // let before_preceding = before_current.and_then(|c| unsafe { c.as_ref().preceding });
+        // let mut before_cursor = unsafe { Cursor::new(before_preceding, before_current, &before) };
 
         // Evaluate element
         // ---------------------------------------------------------------------
-        // evaluate_statement(&mut cursor, &mut before_cursor);
+        evaluate_statement(&mut cursor, &mut before);
 
         // Re-join tree.
-        cursor.splice_before(before);
+        cursor.try_join(before).unwrap();
+
+        // println!("cursor: {cursor:?}");
+        // println!("current: {:?}",cursor.current());
+        // println!("-------------------------\n{}",unsafe { cursor.tree.as_ref().clone() });
+        // println!("\n\n\n");
 
         // Move to next element
         // ---------------------------------------------------------------------
@@ -44,38 +64,39 @@ pub fn evaluate_tree(tree: &mut SyntaxTree<Statement>) {
             break;
         }
     }
+    // return;
 
     // Remove unused assignments
     // ---------------------------------------------------------------------------------------------
-    // let mut cursor = tree.cursor_mut();
-    // #[cfg(debug_assertions)]
-    // let mut guard = 0;
-    // while let Some(current) = cursor.current() {
-    //     #[cfg(debug_assertions)]
-    //     {
-    //         guard += 1;
-    //         assert!(guard < 100);
-    //     }
+    let mut cursor = tree.cursor_mut();
+    #[cfg(debug_assertions)]
+    let mut guard = 0;
+    while let Some(current) = cursor.current() {
+        #[cfg(debug_assertions)]
+        {
+            guard += 1;
+            assert!(guard < 100);
+        }
 
-    //     match &current.0 {
-    //         StatementType::Assign(assign) => match assign.expr {
-    //             Expression::Unary(Unary(Value::Literal(_))) => cursor.remove_current(),
-    //             _ => {
-    //                 // Move to next element, if attempting to move to the next element failed, break.
-    //                 if !cursor.move_successor() {
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //         _ => {
-    //             // Move to next element, if attempting to move to the next element failed, break.
-    //             if !cursor.move_successor() {
-    //                 break;
-    //             }
-    //         }
-    //     }
+        match &current.0 {
+            StatementType::Assign(assign) => match assign.expr {
+                Expression::Unary(Unary(Value::Literal(_))) => cursor.remove_current(),
+                _ => {
+                    // Move to next element, if attempting to move to the next element failed, break.
+                    if !cursor.move_successor() {
+                        break;
+                    }
+                }
+            }
+            _ => {
+                // Move to next element, if attempting to move to the next element failed, break.
+                if !cursor.move_successor() {
+                    break;
+                }
+            }
+        }
         
-    // }
+    }
 }
 
 fn evaluate_statement(current: &mut CursorMut<Statement>, before: &mut Cursor<Statement>) {
