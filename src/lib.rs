@@ -104,10 +104,16 @@ fn evaluate_statement(current: &mut CursorMut<Statement>, before: &mut Cursor<St
         match &mut current.0 {
             StatementType::Assign(assign) => evaluate_assign(assign, before),
             StatementType::Return(ret) => evaluate_return(ret,before),
+            StatementType::If(i) => evaluate_if(current,before),
             _ => {}
         }
     }
 }
+
+fn evaluate_if(current: &mut CursorMut<Statement>, before: &mut Cursor<Statement>) {
+    let i = current.current()
+}
+
 fn evaluate_return(current: &mut Return, before: &mut Cursor<Statement>) {
     if let Value::Ident(ident) = &mut current.0 {
         while let Some(previous) = before.current() {
