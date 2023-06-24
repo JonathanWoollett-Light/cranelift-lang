@@ -249,6 +249,12 @@ impl StatementType {
             _ => None,
         }
     }
+    pub fn if_ref(&self) -> Option<&If> {
+        match self {
+            Self::If(x) => Some(x),
+            _ => None,
+        }
+    }
     pub fn return_mut(&mut self) -> Option<&mut Return> {
         match self {
             Self::Return(x) => Some(x),

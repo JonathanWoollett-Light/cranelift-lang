@@ -1,5 +1,5 @@
 mod ast;
-use linked_syntax_tree::SyntaxTree;
+use linked_syntax_tree::OptionalNode;
 
 pub use ast::*;
 use std::cmp::Ordering;
@@ -13,9 +13,9 @@ pub fn get_indent(bytes: &[u8]) -> usize {
     indent
 }
 
-pub fn statements(text: impl Read) -> SyntaxTree<Statement> {
+pub fn statements(text: impl Read) -> OptionalNode<Statement> {
     let mut lines = std::io::BufReader::new(text).lines();
-    let mut tree = SyntaxTree::default();
+    let mut tree = OptionalNode::default();
     let mut cursor = tree.cursor_mut();
     let mut last_indent = 0;
 
