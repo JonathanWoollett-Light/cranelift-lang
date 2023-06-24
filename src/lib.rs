@@ -42,12 +42,13 @@ pub fn evaluate_tree(tree: &mut OptionalNode<Statement>) {
         }
     }
 
-    // Remove unused assignments
+    // Remove statements
     // ---------------------------------------------------------------------------------------------
     let mut cursor = tree.cursor_mut();
     #[cfg(debug_assertions)]
     let mut guard = 0;
-    while let Some(current) = cursor.current() {
+    // TODO Remove the `cloned` here.
+    while let Some(current) = cursor.current().cloned() {
         #[cfg(debug_assertions)]
         {
             guard += 1;
@@ -55,10 +56,35 @@ pub fn evaluate_tree(tree: &mut OptionalNode<Statement>) {
         }
 
         match &current.0 {
-            StatementType::Assign(assign) => match assign.expr {
+            StatementType::Assign(assign) => match &assign.expr {
+                // If statement assigns an identifier a literal value it can be removed.
                 Expression::Unary(Unary(Value::Literal(_))) => cursor.remove_current(),
+                // If a statement assigns an identifier to an identifier which has an unknown value,
+                // this statement can be removed.
+                Expression::Unary(Unary(Value::Ident(ident))) => {
+                    let (_, mut before) = cursor.split();
+                    while let Some(previous) = before.current() {
+                        match &previous.0 {
+                            StatementType::Assign(inner_assign) => {
+                                if inner_assign.ident == *ident {
+                                    match &inner_assign.expr {
+                                        Expression::Unknown(_) => {
+                                            cursor.remove_current();
+                                        }
+                                        _ => {}
+                                    }
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        // TODO We also need to explore statements within `if` statements as these may assign to the identifier.
+                        before.move_preceding();
+                    }
+                }
                 _ => {
-                    // Move to next element, if attempting to move to the next element failed, break.
+                    // Move to next element, if attempting to move to the next element failed,
+                    // break.
                     if !cursor.move_successor() {
                         break;
                     }
@@ -240,7 +266,7 @@ mod tests {
     use linked_syntax_tree::Element;
 
     #[test]
-    fn basic() {
+    fn one() {
         let text = r#"x = ?
 y = 2 + 3
 x = y
@@ -251,7 +277,6 @@ return x
 "#;
         let mut tree = statements(text.as_bytes());
         evaluate_tree(&mut tree);
-        println!("{tree}");
         let mut iter = tree.iter();
         // Assert `text` is evaluated to
         // ```text
@@ -279,6 +304,74 @@ return x
     }
 
     #[test]
+    fn two() {
+        let text = r#"x = ?
+y = 2
+y = x
+a = 2
+b = 3
+c = a + b
+d = ?
+if 1
+    c = d + c
+    d = 4
+a = d
+return a
+"#;
+        let mut tree = statements(text.as_bytes());
+        evaluate_tree(&mut tree);
+        let mut iter = tree.iter();
+        // Assert `text` is evaluated to
+        // ```text
+        // x = ?
+        // d = ?
+        // c = d + 5
+        // return 4
+        // ```
+        assert_eq!(
+            iter.next(),
+            Some(Element {
+                item: &Statement(StatementType::Assign(Assign {
+                    ident: Ident(String::from("x")),
+                    expr: Expression::Unknown(Unknown)
+                })),
+                depth: 0
+            })
+        );
+        assert_eq!(
+            iter.next(),
+            Some(Element {
+                item: &Statement(StatementType::Assign(Assign {
+                    ident: Ident(String::from("d")),
+                    expr: Expression::Unknown(Unknown)
+                })),
+                depth: 0
+            })
+        );
+        assert_eq!(
+            iter.next(),
+            Some(Element {
+                item: &Statement(StatementType::Assign(Assign {
+                    ident: Ident(String::from("c")),
+                    expr: Expression::Binary(Binary {
+                        lhs: Value::Ident(Ident(String::from("d"))),
+                        op: Op::Add,
+                        rhs: Value::Literal(Literal(5))
+                    })
+                })),
+                depth: 0
+            })
+        );
+        assert_eq!(
+            iter.next(),
+            Some(Element {
+                item: &Statement(StatementType::Return(Return(Value::Literal(Literal(4))))),
+                depth: 0
+            })
+        );
+        assert_eq!(iter.next(), None);
+    }
+
     fn middle() {
         tracing_subscriber::fmt::init();
 
