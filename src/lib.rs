@@ -1,13 +1,11 @@
-#![warn(clippy::pedantic)]
-
 use frontend::*;
-use linked_syntax_tree::{Cursor, CursorMut, OptionalNode};
+use linked_syntax_tree::{Cursor, CursorMut, SyntaxTree};
 use tracing::{info, instrument};
 /// The frontend convert from the text to the abstract syntax tree, this is a singly-linked graph
 pub mod frontend;
 
 #[instrument(ret, skip_all, level = "trace")]
-pub fn evaluate_tree(tree: &mut OptionalNode<Statement>) {
+pub fn evaluate_tree(tree: &mut SyntaxTree<Statement>) {
     let mut cursor = tree.cursor_mut();
 
     if cursor.current().is_none() {
@@ -71,12 +69,12 @@ pub fn evaluate_tree(tree: &mut OptionalNode<Statement>) {
                                         Expression::Unknown(_) => {
                                             cursor.remove_current();
                                         }
-                                        _ => {}
+                                        _ => todo!(),
                                     }
                                     break;
                                 }
                             }
-                            _ => {}
+                            _ => todo!(),
                         }
                         // TODO We also need to explore statements within `if` statements as these may assign to the identifier.
                         before.move_preceding();
@@ -106,7 +104,7 @@ fn evaluate_statement(cursor: &mut CursorMut<Statement>) {
     if let Some(statement) = after.current_mut() {
         match &mut statement.0 {
             StatementType::Assign(assign) => evaluate_assign(assign, &mut before),
-            StatementType::Return(ret) => evaluate_return(ret, &mut before),
+            StatementType::Return(_) => evaluate_return(&mut after, &mut before),
             StatementType::If(_) => evaluate_if(&mut after, &mut before),
             _ => {}
         }
@@ -114,7 +112,7 @@ fn evaluate_statement(cursor: &mut CursorMut<Statement>) {
 }
 
 #[instrument(ret, skip_all, level = "trace")]
-fn evaluate_if(cursor: &mut CursorMut<Statement>, before: &mut Cursor<Statement>) {
+fn evaluate_if(cursor: &mut CursorMut<Statement>, _before: &mut Cursor<Statement>) {
     match cursor.current().unwrap().0.if_ref().unwrap().cond {
         Value::Literal(Literal(n)) => {
             if n > 0 {
@@ -127,8 +125,12 @@ fn evaluate_if(cursor: &mut CursorMut<Statement>, before: &mut Cursor<Statement>
 }
 
 #[instrument(ret, skip_all, level = "trace")]
-fn evaluate_return(current: &mut Return, before: &mut Cursor<Statement>) {
-    if let Value::Ident(ident) = &mut current.0 {
+fn evaluate_return(cursor: &mut CursorMut<Statement>, before: &mut Cursor<Statement>) {
+    let return_statement = cursor.current_mut().unwrap().0.return_mut().unwrap();
+
+    // Evaluate return statement value.
+    // -------------------------------------------------------------------------
+    if let Value::Ident(ident) = &mut return_statement.0 {
         while let Some(previous) = before.current() {
             match &previous.0 {
                 StatementType::Assign(inner_assign) => {
@@ -136,20 +138,50 @@ fn evaluate_return(current: &mut Return, before: &mut Cursor<Statement>) {
                         match &inner_assign.expr {
                             Expression::Unary(inner_unary) => match inner_unary {
                                 Unary(value @ Value::Literal(_)) => {
-                                    current.0 = value.clone();
+                                    return_statement.0 = value.clone();
                                     break;
                                 }
-                                _ => {}
+                                _ => todo!(),
                             },
-                            _ => {}
+                            _ => todo!(),
                         }
-                        break;
                     }
                 }
-                _ => {}
+                _ => todo!(),
             }
             before.move_preceding();
         }
+    }
+
+    // Remove all next statements after a return statement.
+    // -------------------------------------------------------------------------
+    debug_assert_eq!(cursor.peek_child(), None);
+    cursor.split_next();
+
+    // Remove statements before the return statement.
+    // -------------------------------------------------------------------------
+
+    // TODO Avoid doing this again (see that we already do it above).
+    let return_statement = cursor.current().unwrap().0.return_ref().unwrap();
+
+    match return_statement.0 {
+        // If the return statements returns a literal value, we can remove all statements before it
+        // which do not have side affects.
+        Value::Literal(_) => {
+            let (_, mut before) = cursor.split_restricted();
+            while let Some(current) = before.current() {
+                match &current.0 {
+                    StatementType::Assign(Assign { ident: _, expr }) => match expr {
+                        Expression::Unary(_) | Expression::Binary(_) => before.remove_current(),
+                        Expression::Unknown(_) => break,
+                        Expression::Call(_) => todo!(),
+                    },
+                    _ => break,
+                }
+                before.move_preceding();
+            }
+        }
+        Value::Ident(_) => todo!(),
     }
 }
 
@@ -176,28 +208,33 @@ fn evaluate_assign(current: &mut Assign, before: &mut Cursor<Statement>) {
                 let mut b_val = None;
 
                 while let Some(previous) = before.current() {
+                    #[allow(clippy::single_match)]
                     match &previous.0 {
                         StatementType::Assign(inner_assign) => {
                             if inner_assign.ident == *a {
                                 a_hit = true;
+                                #[allow(clippy::single_match)]
                                 match &inner_assign.expr {
                                     Expression::Unary(inner_unary) => match inner_unary {
                                         Unary(Value::Literal(v)) => {
                                             a_val = Some(v.clone());
                                         }
-                                        _ => {}
+                                        _ => todo!(),
                                     },
+                                    // This is a todo, but for now we currently don't explore this.
                                     _ => {}
                                 }
                             } else if inner_assign.ident == *b {
                                 b_hit = true;
+                                #[allow(clippy::single_match)]
                                 match &inner_assign.expr {
                                     Expression::Unary(inner_unary) => match inner_unary {
                                         Unary(Value::Literal(v)) => {
                                             b_val = Some(v.clone());
                                         }
-                                        _ => {}
+                                        _ => todo!(),
                                     },
+                                    // This is a todo, but for now we currently don't explore this.
                                     _ => {}
                                 }
                             }
@@ -205,6 +242,7 @@ fn evaluate_assign(current: &mut Assign, before: &mut Cursor<Statement>) {
                                 break;
                             }
                         }
+                        // This is a todo, but for now we currently don't explore this.
                         _ => {}
                     }
                     // TODO This should be some function `move_predecessor_if` where the `if` is
@@ -226,36 +264,37 @@ fn evaluate_assign(current: &mut Assign, before: &mut Cursor<Statement>) {
                     (None, None) => {}
                 }
             }
-            _ => {}
+            _ => todo!(),
         },
-        Expression::Unary(unary) => match unary {
-            Unary(Value::Ident(ident)) => {
+        Expression::Unary(unary) => {
+            if let Unary(Value::Ident(ident)) = unary {
                 while let Some(previous) = before.current() {
                     match &previous.0 {
                         StatementType::Assign(inner_assign) => {
                             if inner_assign.ident == *ident {
+                                #[allow(clippy::single_match)]
                                 match &inner_assign.expr {
                                     Expression::Unary(inner_unary) => match inner_unary {
                                         Unary(Value::Literal(_)) => {
                                             *unary = inner_unary.clone();
                                             break;
                                         }
-                                        _ => {}
+                                        _ => todo!(),
                                     },
+                                    // This is a todo, but for now we currently don't explore this.
                                     _ => {}
                                 }
                                 break;
                             }
                         }
-                        _ => {}
+                        _ => todo!(),
                     }
                     // TODO This should be some function `move_predecessor_if` where the `if` is
                     // some closure that evaluates if to enter the children of a `if` statement.
                     before.move_preceding();
                 }
             }
-            _ => {}
-        },
+        }
         _ => {}
     }
 }
@@ -317,6 +356,7 @@ if 1
     d = 4
 a = d
 return a
+return a
 "#;
         let mut tree = statements(text.as_bytes());
         evaluate_tree(&mut tree);
@@ -325,7 +365,6 @@ return a
         // ```text
         // x = ?
         // d = ?
-        // c = d + 5
         // return 4
         // ```
         assert_eq!(
@@ -344,20 +383,6 @@ return a
                 item: &Statement(StatementType::Assign(Assign {
                     ident: Ident(String::from("d")),
                     expr: Expression::Unknown(Unknown)
-                })),
-                depth: 0
-            })
-        );
-        assert_eq!(
-            iter.next(),
-            Some(Element {
-                item: &Statement(StatementType::Assign(Assign {
-                    ident: Ident(String::from("c")),
-                    expr: Expression::Binary(Binary {
-                        lhs: Value::Ident(Ident(String::from("d"))),
-                        op: Op::Add,
-                        rhs: Value::Literal(Literal(5))
-                    })
                 })),
                 depth: 0
             })

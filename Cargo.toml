@@ -13,4 +13,4 @@ cranelift-jit = "0.85.1"
 colored = "2.0.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["std","fmt"] }
-linked-syntax-tree = { git = "https://github.com/JonathanWoollett-Light/linked-syntax-tree", rev = "2c911d3efe049379c29d26002388711b3da53c37" }
+linked-syntax-tree = { git = "https://github.com/JonathanWoollett-Light/linked-syntax-tree", rev = "a9393c8560774e773c8cf08cf06049dd1c42e8a3" }
