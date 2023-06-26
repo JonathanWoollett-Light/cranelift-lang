@@ -7,10 +7,8 @@ edition = "2021"
 
 [dependencies]
 peg = "0.8.1"
-cranelift = "0.85.1"
-cranelift-module = "0.85.1"
-cranelift-jit = "0.85.1"
 colored = "2.0.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["std","fmt"] }
 linked-syntax-tree = { git = "https://github.com/JonathanWoollett-Light/linked-syntax-tree", rev = "a9393c8560774e773c8cf08cf06049dd1c42e8a3" }
+llvm-sys = "150.1.1"

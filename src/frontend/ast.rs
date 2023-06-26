@@ -11,7 +11,6 @@ pub enum KeyWord {
     If,
     Loop,
     Break,
-    Return,
 }
 impl fmt::Display for KeyWord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,7 +22,6 @@ impl fmt::Display for KeyWord {
                 KeyWord::If => "if",
                 KeyWord::Loop => "loop",
                 KeyWord::Break => "break",
-                KeyWord::Return => "return",
             }
             .purple()
         )
@@ -41,27 +39,11 @@ impl fmt::Display for Break {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Call {
     pub ident: Ident,
-    pub args: Vec<Value>,
-}
-impl Call {
-    pub fn main() -> Self {
-        Self {
-            ident: Ident(String::new()),
-            args: Vec::new(),
-        }
-    }
+    pub input: Value,
 }
 impl fmt::Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}({})",
-            self.ident,
-            self.args
-                .iter()
-                .map(|arg| format!("{arg},"))
-                .collect::<String>()
-        )
+        write!(f, "{}({})", self.ident.to_string().yellow(), self.input)
     }
 }
 
@@ -74,30 +56,10 @@ impl fmt::Display for Loop {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Function {
-    pub ident: Ident,
-    pub args: Vec<Ident>,
-}
+pub struct Function(pub Ident);
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{} {}({})",
-            KeyWord::Def,
-            self.ident,
-            self.args
-                .iter()
-                .map(|arg| format!("{arg},"))
-                .collect::<String>()
-        )
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Return(pub Value);
-impl fmt::Display for Return {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", KeyWord::Return, self.0)
+        write!(f, "{} {}", KeyWord::Def, self.0.to_string().yellow(),)
     }
 }
 
@@ -162,7 +124,10 @@ impl fmt::Display for Literal {
 pub struct Ident(pub String);
 impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
+        match self.0.as_str() {
+            "in" | "out" => write!(f, "{}", self.0.truecolor(255, 165, 0)),
+            _ => write!(f, "{}", self.0),
+        }
     }
 }
 
@@ -180,6 +145,8 @@ pub enum Expression {
     Binary(Binary),
     Call(Call),
     Unknown(Unknown),
+    Array(Array),
+    Index(Index),
 }
 impl Expression {
     pub fn unary_mut(&mut self) -> Option<&mut Unary> {
@@ -214,7 +181,37 @@ impl fmt::Display for Expression {
             Self::Binary(x) => write!(f, "{x}"),
             Self::Call(x) => write!(f, "{x}"),
             Self::Unknown(x) => write!(f, "{x}"),
+            Self::Array(x) => write!(f, "{x}"),
+            Self::Index(x) => write!(f, "{x}"),
         }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Array(pub Vec<Value>);
+impl Array {
+    pub const LHS: &str = "{";
+    pub const RHS: &str = "}";
+}
+impl fmt::Display for Array {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}",
+            Self::LHS,
+            self.0.iter().map(|v| format!("{v},")).collect::<String>(),
+            Self::RHS
+        )
+    }
+}
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Index {
+    pub ident: Ident,
+    pub index: Value,
+}
+impl fmt::Display for Index {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}[{}]", self.ident, self.index)
     }
 }
 
@@ -230,7 +227,6 @@ impl fmt::Display for Statement {
 pub enum StatementType {
     Loop(Loop),
     If(If),
-    Return(Return),
     Break(Break),
     Assign(Assign),
     Call(Call),
@@ -252,18 +248,6 @@ impl StatementType {
     pub fn if_ref(&self) -> Option<&If> {
         match self {
             Self::If(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn return_ref(&self) -> Option<&Return> {
-        match self {
-            Self::Return(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn return_mut(&mut self) -> Option<&mut Return> {
-        match self {
-            Self::Return(x) => Some(x),
             _ => None,
         }
     }
@@ -307,7 +291,6 @@ impl fmt::Display for StatementType {
             Self::Call(x) => write!(f, "{x}"),
             Self::Break(x) => write!(f, "{x}"),
             Self::Function(x) => write!(f, "{x}"),
-            Self::Return(x) => write!(f, "{x}"),
         }
     }
 }

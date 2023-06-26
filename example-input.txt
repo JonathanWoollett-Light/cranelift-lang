@@ -1,7 +1,34 @@
 x = ?
-y = 2 + 3
-x = y
+y = 2
+y = x
+a = 2
+b = 3
+c = a + b
+d = ?
 if 1
-    c = y + x
-    x = c
-return x
+    c = d + c
+    d = 4
+a = d
+loop
+    a = a + c
+    if 1
+        break
+def triple_add
+    a = in[0]
+    b = in[1]
+    c = in[2]
+    one = a + b
+    two = one + c
+    if 0
+        three = {two,two,two,}
+        two = triple_add(three)
+    out = two
+temp = {a,1,b,}
+a = triple_add(temp)
+e = c + d
+e = e + a
+x = ?
+e = x + e
+if 1
+    out = e
+out = 1
