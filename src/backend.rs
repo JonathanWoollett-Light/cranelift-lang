@@ -17,7 +17,7 @@ use llvm_sys::{
     target::LLVM_InitializeNativeTarget,
 };
 
-use std::ffi::{CStr, CString};
+use std::ffi::{c_int, CStr, CString};
 
 #[cfg(test)]
 mod tests {
@@ -94,10 +94,8 @@ unsafe fn code_gen() {
     // I was experiencing issues with `LLVMRunFunction` looking this up I found
     // https://stackoverflow.com/a/63440756/4301453 which says to use `LLVMGetFunctionAddress`.
     let addr = LLVMGetFunctionAddress(engine, function_name.as_c_str().as_ptr());
-    let ptr = addr as *mut fn(i32, i32) -> i32;
-    println!("got here");
-    let res = (*ptr)(1i32, 2i32);
-    println!("didn't get here");
+    let f: extern "C" fn(c_int, c_int) -> c_int = std::mem::transmute(addr);
+    let res = f(1i32, 2i32);
     println!("{}", res);
 
     // let res = LLVMRunFunction(engine, sum, 2, args.as_mut_ptr());
