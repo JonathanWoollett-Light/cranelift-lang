@@ -3,32 +3,27 @@ y = 2
 y = x
 a = 2
 b = 3
-c = a + b
+c = add {a,b,}
 d = ?
 if 1
-    c = d + c
+    c = add {d,c,}
     d = 4
 a = d
 loop
-    a = a + c
+    a = add {a,c,}
     if 1
         break
 def triple_add
-    a = in[0]
-    b = in[1]
-    c = in[2]
-    one = a + b
-    two = one + c
+    one = add {in[0],in[1],}
+    two = add {one,in[2],}
     if 0
-        three = {two,two,two,}
-        two = triple_add(three)
+        two = triple_add {two,two,two,}
     out = two
-temp = {a,1,b,}
-a = triple_add(temp)
-e = c + d
-e = e + a
+a = triple_add {a,1,b,}
+e = add {c,d,}
+e = add {e,a,}
 x = ?
-e = x + e
+e = add {x,e,}
 if 1
     out = e
 out = 1

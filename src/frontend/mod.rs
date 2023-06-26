@@ -66,11 +66,11 @@ peg::parser!(pub grammar parser() for str {
         = i:if_rule() { StatementType::If(i) }
             / l:loop() { StatementType::Loop(l) }
             / a:assignment() { StatementType::Assign(a) }
-            / c:call() { StatementType::Call(c) }
             / f:function() { StatementType::Function(f) }
+            / c:call() { StatementType::Call(c) }
             / b:break() { StatementType::Break(b) }
 
-    rule if_rule() -> If = "if" _ cond:value() { If { cond } }
+    rule if_rule() -> If = "if" _ cond:expression() { If { cond } }
 
     rule loop() -> Loop = "loop" { Loop }
 
@@ -80,38 +80,23 @@ peg::parser!(pub grammar parser() for str {
         = ident:identifier() _ "=" _ expr:expression() { Assign { ident, expr } }
 
     rule expression() -> Expression
-        = b:binary() { Expression::Binary(b) }
+            = a:array() { Expression::Array(a) }
+            / i:index() { Expression::Index(i) }
             / c:call() { Expression::Call(c) }
             / u:unknown() { Expression::Unknown(u) }
-            / a:array() { Expression::Array(a) }
-            / i:index() { Expression::Index(i) }
-            / u:unary() { Expression::Unary(u) }
+            / i:identifier() { Expression::Ident(i) }
+            / l:literal() { Expression::Literal(l) }
 
     rule unknown() -> Unknown = "?" { Unknown }
-    rule unary() -> Unary = v:value() { Unary(v) }
-    rule binary() -> Binary
-        = lhs:value() _ op:op() _ rhs:value() { Binary { lhs, op,rhs } }
     rule call() -> Call
-        = ident:identifier() "(" input:value() ")" { Call { ident, input } }
+        = ident:identifier() _ input:expression() { Call { ident, input: Box::new(input) } }
     rule array() -> Array
-        = "{" args:((v:value() "," {v})*) "}" { Array(args) }
+        = "{" args:((v:expression() "," {v})*) "}" { Array(args) }
     rule index() -> Index
-        = ident:identifier() "[" index:value() "]" { Index { ident, index } }
-
-    rule value() -> Value
-        = i:identifier() { Value::Ident(i) }
-            / l:literal() { Value::Literal(l) }
-
-
+        = ident:identifier() "[" index:expression() "]" { Index { ident, index: Box::new(index) } }
 
     rule function() -> Function
         = "def" _ ident:identifier() { Function(ident) }
-
-    rule op() -> Op
-        = "+" { Op::Add }
-        / "-" { Op::Sub }
-        / "*" { Op::Mul }
-        / "/" { Op::Div }
 
     // TODO Prevent users using '_' to start variables.
     rule identifier() -> Ident
@@ -134,32 +119,27 @@ y = 2
 y = x
 a = 2
 b = 3
-c = a + b
+c = add {a,b,}
 d = ?
 if 1
-    c = d + c
+    c = add {d,c,}
     d = 4
 a = d
 loop
-    a = a + c
+    a = add {a,c,}
     if 1
         break
 def triple_add
-    a = in[0]
-    b = in[1]
-    c = in[2]
-    one = a + b
-    two = one + c
+    one = add {in[0],in[1],}
+    two = add {one,in[2],}
     if 0
-        three = {two,two,two,}
-        two = triple_add(three)
+        two = triple_add {two,two,two,}
     out = two
-temp = {a,1,b,}
-a = triple_add(temp)
-e = c + d
-e = e + a
+a = triple_add {a,1,b,}
+e = add {c,d,}
+e = add {e,a,}
 x = ?
-e = x + e
+e = add {x,e,}
 if 1
     out = e
 out = 1

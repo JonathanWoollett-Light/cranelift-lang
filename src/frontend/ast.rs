@@ -39,11 +39,11 @@ impl fmt::Display for Break {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Call {
     pub ident: Ident,
-    pub input: Value,
+    pub input: Box<Expression>,
 }
 impl fmt::Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}({})", self.ident.to_string().yellow(), self.input)
+        write!(f, "{} {}", self.ident.to_string().yellow(), self.input)
     }
 }
 
@@ -59,7 +59,7 @@ impl fmt::Display for Loop {
 pub struct Function(pub Ident);
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", KeyWord::Def, self.0.to_string().yellow(),)
+        write!(f, "{} {}", KeyWord::Def, self.0.to_string().yellow())
     }
 }
 
@@ -76,39 +76,11 @@ impl fmt::Display for Assign {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct If {
-    pub cond: Value,
+    pub cond: Expression,
 }
 impl fmt::Display for If {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", KeyWord::If, self.cond)
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Value {
-    Literal(Literal),
-    Ident(Ident),
-}
-impl Value {
-    pub fn ident_mut(&mut self) -> Option<&mut Ident> {
-        match self {
-            Self::Ident(x) => Some(x),
-            Self::Literal(_) => None,
-        }
-    }
-    pub fn literal_mut(&mut self) -> Option<&mut Literal> {
-        match self {
-            Self::Literal(x) => Some(x),
-            Self::Ident(_) => None,
-        }
-    }
-}
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Literal(literal) => write!(f, "{literal}"),
-            Self::Ident(ident) => write!(f, "{ident}"),
-        }
     }
 }
 
@@ -125,7 +97,10 @@ pub struct Ident(pub String);
 impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.0.as_str() {
+            // Function inputs/outputs
             "in" | "out" => write!(f, "{}", self.0.truecolor(255, 165, 0)),
+            // Intrinsics
+            "add" | "sub" | "mul" | "div" => write!(f, "{}", self.0.green()),
             _ => write!(f, "{}", self.0),
         }
     }
@@ -141,26 +116,14 @@ impl fmt::Display for Unknown {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expression {
-    Unary(Unary),
-    Binary(Binary),
+    Literal(Literal),
+    Ident(Ident),
     Call(Call),
     Unknown(Unknown),
     Array(Array),
     Index(Index),
 }
 impl Expression {
-    pub fn unary_mut(&mut self) -> Option<&mut Unary> {
-        match self {
-            Self::Unary(x) => Some(x),
-            _ => None,
-        }
-    }
-    pub fn binary_mut(&mut self) -> Option<&mut Binary> {
-        match self {
-            Self::Binary(x) => Some(x),
-            _ => None,
-        }
-    }
     pub fn call_mut(&mut self) -> Option<&mut Call> {
         match self {
             Self::Call(x) => Some(x),
@@ -177,8 +140,8 @@ impl Expression {
 impl fmt::Display for Expression {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::Unary(x) => write!(f, "{x}"),
-            Self::Binary(x) => write!(f, "{x}"),
+            Self::Literal(x) => write!(f, "{x}"),
+            Self::Ident(x) => write!(f, "{x}"),
             Self::Call(x) => write!(f, "{x}"),
             Self::Unknown(x) => write!(f, "{x}"),
             Self::Array(x) => write!(f, "{x}"),
@@ -188,7 +151,7 @@ impl fmt::Display for Expression {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Array(pub Vec<Value>);
+pub struct Array(pub Vec<Expression>);
 impl Array {
     pub const LHS: &str = "{";
     pub const RHS: &str = "}";
@@ -207,7 +170,7 @@ impl fmt::Display for Array {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Index {
     pub ident: Ident,
-    pub index: Value,
+    pub index: Box<Expression>,
 }
 impl fmt::Display for Index {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -291,55 +254,6 @@ impl fmt::Display for StatementType {
             Self::Call(x) => write!(f, "{x}"),
             Self::Break(x) => write!(f, "{x}"),
             Self::Function(x) => write!(f, "{x}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Unary(pub Value);
-impl fmt::Display for Unary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Binary {
-    pub lhs: Value,
-    pub op: Op,
-    pub rhs: Value,
-}
-impl fmt::Display for Binary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {}", self.lhs, self.op, self.rhs)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum Op {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-impl Op {
-    #[must_use]
-    pub fn run(&self, a: LiteralValue, b: LiteralValue) -> LiteralValue {
-        match self {
-            Self::Add => a + b,
-            Self::Sub => a - b,
-            Self::Mul => a * b,
-            Self::Div => a / b,
-        }
-    }
-}
-impl fmt::Display for Op {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Add => write!(f, "+"),
-            Self::Sub => write!(f, "-"),
-            Self::Mul => write!(f, "*"),
-            Self::Div => write!(f, "/"),
         }
     }
 }
