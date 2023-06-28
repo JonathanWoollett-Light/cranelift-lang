@@ -10,5 +10,5 @@ peg = "0.8.1"
 colored = "2.0.0"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["std","fmt"] }
-linked-syntax-tree = { git = "https://github.com/JonathanWoollett-Light/linked-syntax-tree", rev = "a9393c8560774e773c8cf08cf06049dd1c42e8a3" }
+linked-syntax-tree = { git = "https://github.com/JonathanWoollett-Light/linked-syntax-tree", rev = "2939c4653bb401a138dce10a70c87d5cf52f6585" }
 llvm-sys = "150.1.1"

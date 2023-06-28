@@ -144,19 +144,20 @@ if 1
     out = e
 out = 1
 "#;
+
         let tree = statements(text.as_bytes());
 
         let result = tree.to_string();
         println!("{result}");
 
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open("out.txt")
-            .unwrap();
-        file.write_all(result.as_bytes()).unwrap();
+        // use std::io::Write;
+        // let mut file = std::fs::OpenOptions::new()
+        //     .create(true)
+        //     .truncate(true)
+        //     .write(true)
+        //     .open("out.txt")
+        //     .unwrap();
+        // file.write_all(result.as_bytes()).unwrap();
 
         // TODO Can we make this expected string look less bad?
         let expected = r#"x = [38;2;255;165;0m?[0m
@@ -164,32 +165,27 @@ y = [34m2[0m
 y = x
 a = [34m2[0m
 b = [34m3[0m
-c = a + b
+c = [33m[32madd[0m[33m[0m {a,b,}
 d = [38;2;255;165;0m?[0m
 [35mif[0m [34m1[0m
-    c = d + c
+    c = [33m[32madd[0m[33m[0m {d,c,}
     d = [34m4[0m
 a = d
 [35mloop[0m
-    a = a + c
+    a = [33m[32madd[0m[33m[0m {a,c,}
     [35mif[0m [34m1[0m
         [35mbreak[0m
-[35mdef[0m triple_add
-    a = [38;2;255;165;0min[0m[[34m0[0m]
-    b = [38;2;255;165;0min[0m[[34m1[0m]
-    c = [38;2;255;165;0min[0m[[34m2[0m]
-    one = a + b
-    two = one + c
+[35mdef[0m [33mtriple_add[0m
+    one = [33m[32madd[0m[33m[0m {[38;2;255;165;0min[0m[[34m0[0m],[38;2;255;165;0min[0m[[34m1[0m],}
+    two = [33m[32madd[0m[33m[0m {one,[38;2;255;165;0min[0m[[34m2[0m],}
     [35mif[0m [34m0[0m
-        three = {two,two,two,}
-        two = triple_add(three)
+        two = [33mtriple_add[0m {two,two,two,}
     [38;2;255;165;0mout[0m = two
-temp = {a,[34m1[0m,b,}
-a = triple_add(temp)
-e = c + d
-e = e + a
+a = [33mtriple_add[0m {a,[34m1[0m,b,}
+e = [33m[32madd[0m[33m[0m {c,d,}
+e = [33m[32madd[0m[33m[0m {e,a,}
 x = [38;2;255;165;0m?[0m
-e = x + e
+e = [33m[32madd[0m[33m[0m {x,e,}
 [35mif[0m [34m1[0m
     [38;2;255;165;0mout[0m = e
 [38;2;255;165;0mout[0m = [34m1[0m

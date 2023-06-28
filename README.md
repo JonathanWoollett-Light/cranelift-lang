@@ -12,7 +12,11 @@ A visualization I use for illustrate the abstract syntax tree:
 
 ### Compile-time evaluation
 
-...
+![evaluation before](./eval-before.png)
+
+becomes
+
+![evaluation after](./eval-after.png)
 
 ### Parsing
 

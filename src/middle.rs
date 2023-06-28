@@ -1,7 +1,6 @@
-use std::env::current_exe;
-
 use crate::frontend::*;
-use linked_syntax_tree::{Cursor, CursorMut, SyntaxTree};
+use linked_syntax_tree::Preceding;
+use linked_syntax_tree::{CursorMut, SyntaxTree};
 use tracing::{info, instrument};
 
 #[instrument(ret, skip_all, level = "trace")]
@@ -33,213 +32,232 @@ pub fn evaluate_tree(tree: &mut SyntaxTree<Statement>) {
         // let (mut after, mut before) = cursor.split();
         evaluate_statement(&mut cursor);
 
+        // println!("subtree:\n{}",cursor.subtree());
+
         // Move to next element
         // ---------------------------------------------------------------------
-        if !cursor.move_successor() {
+        let moved = cursor.move_successor();
+        if !moved {
             break;
         }
     }
-
+    // return;
     // Remove statements
     // ---------------------------------------------------------------------------------------------
-    let mut cursor = tree.cursor_mut();
+    info!("removing statements");
+
     #[cfg(debug_assertions)]
     let mut guard = 0;
-    // TODO Remove the `cloned` here.
-    while let Some(current) = cursor.current().cloned() {
+    let mut used = std::collections::HashSet::new();
+    loop {
         #[cfg(debug_assertions)]
         {
             guard += 1;
             assert!(guard < 100);
         }
 
-        match &current.0 {
-            StatementType::Assign(Assign { ident, expr }) if ident.0 != "out" => match expr {
-                // If statement assigns an identifier a literal value it can be removed.
-                Expression::Literal(Literal(_)) => cursor.remove_current(),
-                // If a statement assigns an identifier to an identifier which has an unknown value,
-                // this statement can be removed.
-                Expression::Ident(ident) => {
-                    let (_, mut before) = cursor.split();
-                    while let Some(previous) = before.current() {
-                        match &previous.0 {
-                            StatementType::Assign(inner_assign) => {
-                                if inner_assign.ident == *ident {
-                                    match &inner_assign.expr {
-                                        Expression::Unknown(_) => {
-                                            cursor.remove_current();
-                                        }
-                                        _ => todo!(),
-                                    }
-                                    break;
-                                }
-                            }
-                            _ => todo!(),
-                        }
-                        // TODO We also need to explore statements within `if` statements as these may assign to the identifier.
-                        before.move_preceding();
-                    }
-                }
-                _ => {
-                    // Move to next element, if attempting to move to the next element failed,
-                    // break.
-                    if !cursor.move_successor() {
-                        break;
-                    }
-                }
-            },
-            _ => {
-                // Move to next element, if attempting to move to the next element failed, break.
-                if !cursor.move_successor() {
-                    break;
-                }
+        // Currently when evaluating assignments, we search preceding statements for an
+        // assign to the same identifier that isn't used to remove it. The problem is if
+        // this statement is immediately above the current statement we can't remove it due
+        // to the way `RestrictedCursor` assures safety. So to cover this case we do this
+        // here.
+        //
+        // TODO This is hacky, don't do this. Do something better.
+        //
+        // If the `before_expr` has no side-affects, and the `before_ident == ident` we can remove the preceding statement.
+        if let Some(Statement(StatementType::Assign(Assign { ident, .. }))) = cursor.current()
+            && let Some(Preceding::Parent(preceding) | Preceding::Previous(preceding)) = cursor.peek_preceding()
+            && let Statement(StatementType::Assign(Assign { ident: before_ident, expr: before_expr })) = preceding
+            && ident == before_ident
+        {
+            if let Expression::Literal(_) | Expression::Ident(_) = before_expr {
+                cursor.move_preceding();
+                cursor.remove_current();
             }
+        }
+
+        if let Some(Statement(current)) = cursor.current() {
+            // info!("current: {current}");
+
+            match current {
+                StatementType::Assign(Assign { ident, expr }) => match expr {
+                    // If statement assigns an identifier a literal value it can be removed.
+                    Expression::Literal(Literal(_)) => {
+                        if ident.0 != "out" {
+                            cursor.remove_current()
+                        }
+                    }
+                    // If a statement assigns an identifier to an identifier which has an unknown value,
+                    // this statement can be removed.
+                    Expression::Ident(rhs_ident) => {
+                        used.insert(rhs_ident.0.clone());
+                        if ident.0 != "out" {
+                            cursor.remove_current();
+                        }
+                    }
+                    Expression::Call(Call {
+                        ident: rhs_ident,
+                        input,
+                    }) if rhs_ident.0 == "add" => {
+                        let check = !used.contains(&rhs_ident.0);
+                        for i in input.idents() {
+                            used.insert(i.0.clone());
+                        }
+                        if check {
+                            cursor.remove_current();
+                        }
+                    }
+                    Expression::Unknown(_) => {}
+                    _ => todo!(),
+                },
+                _ => todo!(),
+            }
+        }
+
+        let moved = cursor.move_predecessor();
+        if !moved {
+            break;
         }
     }
 }
 
 #[instrument(ret, skip_all, level = "trace")]
 fn evaluate_statement(cursor: &mut CursorMut<Statement>) {
-    let (mut after, mut before) = cursor.split();
-    if let Some(statement) = after.current_mut() {
+    // let (mut after, mut before) = cursor.slit();
+    if let Some(statement) = cursor.current_mut() {
         match &mut statement.0 {
-            StatementType::Assign(assign) => evaluate_assign(assign, &mut before),
+            StatementType::Assign(_) => evaluate_assign(cursor),
             // StatementType::Call(_) => evaluate_return(&mut after, &mut before),
-            StatementType::If(_) => evaluate_if(&mut after, &mut before),
+            StatementType::If(_) => evaluate_if(cursor),
             _ => {}
         }
     }
 }
 
 #[instrument(ret, skip_all, level = "trace")]
-fn evaluate_if(cursor: &mut CursorMut<Statement>, _before: &mut Cursor<Statement>) {
+fn evaluate_if(cursor: &mut CursorMut<Statement>) {
     match cursor.current().unwrap().0.if_ref().unwrap().cond {
         Expression::Literal(Literal(n)) => {
             if n > 0 {
                 cursor.flatten();
             }
             cursor.remove_current();
+            // Since the outer loop always moves to the successor element, we need this function to
+            // finish on the already covered element to prevent skipping an element.
+            // TODO This is inefficient, avoid this back and forth.
+            cursor.move_preceding();
         }
         _ => todo!(),
     }
 }
 
-// #[instrument(ret, skip_all, level = "trace")]
-// fn evaluate_call(cursor: &mut CursorMut<Statement>, before: &mut Cursor<Statement>) {
-//     let return_statement = cursor.current_mut().unwrap().0.call_mut().unwrap();
-
-//     // Evaluate return statement value.
-//     // -------------------------------------------------------------------------
-//     if let Value::Ident(ident) = &mut return_statement.0 {
-//         while let Some(previous) = before.current() {
-//             match &previous.0 {
-//                 StatementType::Assign(inner_assign) => {
-//                     if inner_assign.ident == *ident {
-//                         match &inner_assign.expr {
-//                             Expression::Unary(inner_unary) => match inner_unary {
-//                                 Unary(value @ Value::Literal(_)) => {
-//                                     return_statement.0 = value.clone();
-//                                     break;
-//                                 }
-//                                 _ => todo!(),
-//                             },
-//                             _ => todo!(),
-//                         }
-//                     }
-//                 }
-//                 _ => todo!(),
-//             }
-//             before.move_preceding();
-//         }
-//     }
-
-//     // Remove all next statements after a return statement.
-//     // -------------------------------------------------------------------------
-//     debug_assert_eq!(cursor.peek_child(), None);
-//     cursor.split_next();
-
-//     // Remove statements before the return statement.
-//     // -------------------------------------------------------------------------
-
-//     // TODO Avoid doing this again (see that we already do it above).
-//     let return_statement = cursor.current().unwrap().0.return_ref().unwrap();
-
-//     match return_statement.0 {
-//         // If the return statements returns a literal value, we can remove all statements before it
-//         // which do not have side affects.
-//         Value::Literal(_) => {
-//             let (_, mut before) = cursor.split_restricted();
-//             while let Some(current) = before.current() {
-//                 match &current.0 {
-//                     StatementType::Assign(Assign { ident: _, expr }) => match expr {
-//                         Expression::Unary(_) | Expression::Binary(_) => before.remove_current(),
-//                         Expression::Unknown(_) => break,
-//                         Expression::Call(_) => todo!(),
-//                     },
-//                     _ => break,
-//                 }
-//                 before.move_preceding();
-//             }
-//         }
-//         Value::Ident(_) => todo!(),
-//     }
-// }
-
 #[instrument(ret, skip_all, level = "trace")]
-fn evaluate_assign(current: &mut Assign, before: &mut Cursor<Statement>) {
+fn evaluate_assign(cursor: &mut CursorMut<Statement>) {
+    let (mut cursor, mut before) = cursor.split_restricted();
+
+    let current = cursor.current_mut().unwrap().0.assign_mut().unwrap();
+    // info!("assign: {current}");
     match &mut current.expr {
         Expression::Call(call) => match call {
-            Call {
-                ident: Ident(ident),
-                input,
-            } if ident == "add" => {
+            Call { ident, input } if ident.0 == "add" => {
                 if let Expression::Array(Array(array)) = &mut **input && let Some([lhs,rhs]) = array.get_mut(..) {
                     match (&lhs,&rhs) {
                         (Expression::Literal(Literal(a)), Expression::Literal(Literal(b))) => {
+                            // Update the expression
                             current.expr = Expression::Literal(Literal(*a+*b));
+
+                            // Remove previous assignments that got overwritten
+                            if let Some(mut preceding) = before.current() {
+                                loop {
+                                    if let StatementType::Assign(Assign { ident: before_ident, expr: before_expr }) = &preceding.0 {
+                                        if current.ident == *before_ident {
+                                            // TODO Evaluate the call for side affects.
+                                            // A call may have side affects so we can't remove it.
+                                            if let Expression::Call(_) = before_expr {
+
+                                            }
+                                            else {
+                                                before.remove_current();
+                                            }
+                                        }
+                                    }
+
+                                    let Some(x) = before.peek_move_preceding() else { break; };
+                                    preceding = x;
+                                }
+                            }
                         },
                         // TODO This is messy, clean this up.
                         (Expression::Ident(a),Expression::Ident(b)) => {
-                            let mut a_hit = false;
-                            let mut b_hit = false;
+                            let mut hit = false;
                             let mut a_val = None;
                             let mut b_val = None;
 
-                            while let Some(previous) = before.current() {
-                                #[allow(clippy::single_match)]
-                                match &previous.0 {
-                                    StatementType::Assign(inner_assign) => {
-                                        if inner_assign.ident == *a {
-                                            a_hit = true;
-                                            #[allow(clippy::single_match)]
-                                            match &inner_assign.expr {
-                                                Expression::Literal(Literal(inner_literal)) => {
-                                                    a_val = Some(*inner_literal);
-                                                },
-                                                // This is a todo, but for now we currently don't explore this.
-                                                _ => {}
+                            // Search for the identifier values and remove previous assignments that got overwritten.
+                            let mut used = false;
+
+                            if let Some(mut preceding) = before.current() {
+                                loop {
+                                    #[allow(clippy::single_match)]
+                                    match &preceding.0 {
+                                        StatementType::Assign(Assign { ident: before_ident, expr: before_expr }) => {
+                                            if current.ident == *before_ident  {
+                                                // If assigning to a variable that has been used before its next assignment.
+                                                if used {
+                                                    // The variable can be used in its own re-assignment.
+                                                    used = before_expr.contains(ident);
+                                                }
+                                                // If assigning to a variable that is not used until its next assignment.
+                                                else {
+                                                    // An unknown or call may have side affect so we cannot easily remove it.
+                                                    match before_expr {
+                                                        Expression::Call(_) | Expression::Unknown(_) => {},
+                                                        _ => {
+                                                            before.remove_current();
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        } else if inner_assign.ident == *b {
-                                            b_hit = true;
-                                            #[allow(clippy::single_match)]
-                                            match &inner_assign.expr {
-                                                Expression::Literal(Literal(inner_literal)) => {
-                                                    b_val = Some(*inner_literal);
-                                                },
-                                                // This is a todo, but for now we currently don't explore this.
-                                                _ => {}
+                                            else if before_ident == a {
+                                                #[allow(clippy::single_match)]
+                                                match before_expr {
+                                                    Expression::Literal(Literal(inner_literal)) => {
+                                                        a_val = Some(*inner_literal);
+                                                    },
+                                                    // This is a todo, but for now we currently don't explore this.
+                                                    _ => {}
+                                                }
+                                                if hit {
+                                                    break;
+                                                }
+                                                else {
+                                                    hit = true;
+                                                }
+                                            }
+                                            else if before_ident == b {
+                                                #[allow(clippy::single_match)]
+                                                match before_expr {
+                                                    Expression::Literal(Literal(inner_literal)) => {
+                                                        b_val = Some(*inner_literal);
+                                                    },
+                                                    // This is a todo, but for now we currently don't explore this.
+                                                    _ => {}
+                                                }
+                                                if hit {
+                                                    break;
+                                                }
+                                                else {
+                                                    hit = true;
+                                                }
                                             }
                                         }
-                                        if a_hit && b_hit {
-                                            break;
-                                        }
+                                        // This is a todo, but for now we currently don't explore this.
+                                        _ => {}
                                     }
-                                    // This is a todo, but for now we currently don't explore this.
-                                    _ => {}
+
+                                    let Some(x) = before.peek_move_preceding() else { break; };
+                                    preceding = x;
                                 }
-                                // TODO This should be some function `move_predecessor_if` where the `if` is
-                                // some closure that evaluates if to enter the children of a `if` statement.
-                                before.move_preceding();
                             }
 
                             match (a_val, b_val) {
@@ -267,31 +285,135 @@ fn evaluate_assign(current: &mut Assign, before: &mut Cursor<Statement>) {
             _ => todo!(),
         },
         Expression::Ident(ident) => {
-            while let Some(previous) = before.current() {
-                match &previous.0 {
-                    StatementType::Assign(inner_assign) => {
-                        if inner_assign.ident == *ident {
-                            #[allow(clippy::single_match)]
-                            match &inner_assign.expr {
+            info!("ident: {ident}");
+
+            let mut used = current.ident == *ident;
+
+            // TODO This shit is crazy reduce duplication.
+            // Iterate through predecessors, possibly removing an unused assignment, and searching
+            // for the value of `ident`.
+            if let Some(mut preceding) = before.current() {
+                loop {
+                    info!("preceding: {preceding}");
+
+                    if let StatementType::Assign(Assign {
+                        ident: before_ident,
+                        expr: before_expr,
+                    }) = &preceding.0
+                    {
+                        // If this statement is an assignment to the variable our current statement
+                        // is assigning to.
+                        //
+                        // Since each assigns checks for and removes an unused assignment to the same
+                        // identifier before it, there can only be at most 1 unused assignment to this
+                        // identifier before this assignment (and in the case the last assignment before
+                        // this is used, all other assignment before this will also be used).
+                        if current.ident == *before_ident {
+                            info!("here");
+
+                            // If the identifier has not been used since its last assignment.
+                            info!("used: {used}");
+                            if !used {
+                                info!("before_expr: {before_expr}");
+                                // An unknown or call may have side affect so we cannot easily remove it.
+                                match before_expr {
+                                    Expression::Call(_) | Expression::Unknown(_) => {}
+                                    _ => {
+                                        info!("hit?");
+                                        info!("preceding 2: {:?}", before.guarded_nodes.last());
+                                        info!("preceding 2: {:?}", before.current);
+                                        before.remove_current();
+                                    }
+                                }
+                            }
+
+                            // Continue loop, now only searching for the identifier value.
+                            while let Some(Statement(preceding)) = before.peek_move_preceding() {
+                                if let StatementType::Assign(Assign {
+                                    ident: before_ident,
+                                    expr: before_expr,
+                                }) = preceding
+                                {
+                                    info!("preceding 2: {preceding}");
+                                    // If this statement is an assignment to the variable used in
+                                    // the current assignment.
+                                    if before_ident == ident {
+                                        #[allow(clippy::single_match)]
+                                        match before_expr {
+                                            Expression::Literal(literal) => {
+                                                current.expr = Expression::Literal(literal.clone());
+                                                break;
+                                            }
+                                            // - In the case we find the ident we are looking for is
+                                            //   assigned to another ident, we know this ident could
+                                            //   not be previously evaluated.
+                                            // - In the unknown case, we cannot do anything.
+                                            Expression::Ident(_) | Expression::Unknown(_) => break,
+                                            _ => todo!(),
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        // If this statement is an assignment to the variable used in the current
+                        // assignment.
+                        else if before_ident == ident {
+                            info!("no here");
+                            match before_expr {
                                 Expression::Literal(literal) => {
                                     current.expr = Expression::Literal(literal.clone());
-                                    break;
                                 }
-                                // This is a todo, but for now we currently don't explore this.
-                                _ => {}
+                                // - In the case we find the ident we are looking for is
+                                //   assigned to another ident, we know this ident could
+                                //   not be previously evaluated.
+                                // - In the unknown case, we cannot do anything.
+                                Expression::Ident(_) | Expression::Unknown(_) => {}
+                                _ => todo!(),
+                            }
+
+                            // Continue loop, now only searching for an unused assignment.
+                            let ident_clone = before_ident.clone();
+                            while let Some(Statement(preceding)) = before.peek_move_preceding() {
+                                if let StatementType::Assign(Assign {
+                                    ident: _,
+                                    expr: before_expr,
+                                }) = preceding
+                                {
+                                    // If this statement is an assignment to the variable our
+                                    // current statement is assigning to.
+                                    if current.ident == ident_clone {
+                                        if !used {
+                                            match before_expr {
+                                                // An unknown or call may have side affect so we cannot easily remove it.
+                                                Expression::Call(_) | Expression::Unknown(_) => {}
+                                                _ => before.remove_current(),
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
                             }
                             break;
                         }
                     }
-                    _ => todo!(),
+
+                    if preceding.uses(&current.ident) {
+                        used = true;
+                    }
+
+                    // TODO We also need to explore statements within `if` statements as these may assign to the identifier.
+                    let Some(x) = before.peek_move_preceding() else { break; };
+                    preceding = x;
                 }
-                // TODO This should be some function `move_predecessor_if` where the `if` is
-                // some closure that evaluates if to enter the children of a `if` statement.
-                before.move_preceding();
             }
+
+            // info!("check 1: {:?}",before.current());
+            // info!("check 2: {:?}",before.peek_preceding().unwrap());
         }
         _ => {}
     }
+    cursor.move_preceding();
 }
 
 #[cfg(test)]
@@ -300,7 +422,7 @@ mod tests {
     use linked_syntax_tree::Element;
 
     #[test]
-    fn optimize_one() {
+    fn middle_one() {
         let text = r#"x = ?
 y = add {2,3,}
 x = y
@@ -311,6 +433,9 @@ out = x
 "#;
         let mut tree = statements(text.as_bytes());
         evaluate_tree(&mut tree);
+
+        println!("tree: {tree}");
+
         let mut iter = tree.iter();
         // Assert `text` is evaluated to
         // ```text
@@ -341,7 +466,7 @@ out = x
     }
 
     #[test]
-    fn optimize_two() {
+    fn middle_two() {
         let text = r#"x = ?
 y = 2
 y = x

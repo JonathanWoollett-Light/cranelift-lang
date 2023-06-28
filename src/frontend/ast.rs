@@ -41,6 +41,15 @@ pub struct Call {
     pub ident: Ident,
     pub input: Box<Expression>,
 }
+impl Call {
+    /// Returns all variable identifiers referenced.
+    pub fn idents(&self) -> Vec<&Ident> {
+        self.input.idents()
+    }
+    pub fn uses(&self, ident: &Ident) -> bool {
+        self.input.contains(ident)
+    }
+}
 impl fmt::Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} {}", self.ident.to_string().yellow(), self.input)
@@ -68,6 +77,11 @@ pub struct Assign {
     pub ident: Ident,
     pub expr: Expression,
 }
+impl Assign {
+    pub fn uses(&self, ident: &Ident) -> bool {
+        self.expr.contains(ident)
+    }
+}
 impl fmt::Display for Assign {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", self.ident, self.expr)
@@ -77,6 +91,11 @@ impl fmt::Display for Assign {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct If {
     pub cond: Expression,
+}
+impl If {
+    pub fn uses(&self, ident: &Ident) -> bool {
+        self.cond.contains(ident)
+    }
 }
 impl fmt::Display for If {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -124,6 +143,17 @@ pub enum Expression {
     Index(Index),
 }
 impl Expression {
+    /// Returns all variable identifiers referenced.
+    pub fn idents(&self) -> Vec<&Ident> {
+        match self {
+            Self::Literal(_) => Vec::new(),
+            Self::Ident(ident) => vec![ident],
+            Self::Call(call) => call.idents(),
+            Self::Unknown(_) => Vec::new(),
+            Self::Array(array) => array.idents(),
+            Self::Index(index) => index.idents(),
+        }
+    }
     pub fn call_mut(&mut self) -> Option<&mut Call> {
         match self {
             Self::Call(x) => Some(x),
@@ -134,6 +164,29 @@ impl Expression {
         match self {
             Self::Unknown(x) => Some(x),
             _ => None,
+        }
+    }
+    pub fn contains(&self, ident: &Ident) -> bool {
+        match self {
+            Self::Literal(_) => false,
+            Self::Ident(inner_ident) if inner_ident == ident => true,
+            Self::Call(Call {
+                ident: _,
+                input: inner_input,
+            }) if inner_input.contains(ident) => true,
+            Self::Unknown(_) => false,
+            Self::Array(Array(array))
+                if array
+                    .iter()
+                    .any(|a| matches!(a, Expression::Ident(i) if i == ident)) =>
+            {
+                true
+            }
+            Self::Index(Index {
+                ident: inner_ident,
+                index: inner_index,
+            }) if inner_ident == ident || inner_index.contains(ident) => true,
+            _ => false,
         }
     }
 }
@@ -155,6 +208,11 @@ pub struct Array(pub Vec<Expression>);
 impl Array {
     pub const LHS: &str = "{";
     pub const RHS: &str = "}";
+
+    /// Returns all variable identifiers referenced.
+    pub fn idents(&self) -> Vec<&Ident> {
+        self.0.iter().flat_map(|e| e.idents()).collect()
+    }
 }
 impl fmt::Display for Array {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -172,6 +230,14 @@ pub struct Index {
     pub ident: Ident,
     pub index: Box<Expression>,
 }
+impl Index {
+    /// Returns all variable identifiers referenced.
+    pub fn idents(&self) -> Vec<&Ident> {
+        let mut temp = vec![&self.ident];
+        temp.extend(self.index.idents());
+        temp
+    }
+}
 impl fmt::Display for Index {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}[{}]", self.ident, self.index)
@@ -180,6 +246,11 @@ impl fmt::Display for Index {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Statement(pub StatementType);
+impl Statement {
+    pub fn uses(&self, ident: &Ident) -> bool {
+        self.0.uses(ident)
+    }
+}
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -196,6 +267,17 @@ pub enum StatementType {
     Function(Function),
 }
 impl StatementType {
+    pub fn uses(&self, ident: &Ident) -> bool {
+        match self {
+            Self::Loop(_) => false,
+            Self::If(i) => i.uses(ident),
+            Self::Break(_) => false,
+            Self::Assign(a) => a.uses(ident),
+            Self::Call(c) => c.uses(ident),
+            Self::Function(_) => false,
+        }
+    }
+
     pub fn loop_mut(&mut self) -> Option<&mut Loop> {
         match self {
             Self::Loop(x) => Some(x),
