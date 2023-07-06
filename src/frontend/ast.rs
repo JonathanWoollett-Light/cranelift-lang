@@ -38,13 +38,19 @@ impl fmt::Display for Break {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Call {
+    pub rt: bool,
     pub ident: Ident,
-    pub input: Box<Expression>,
+    pub input: Option<Box<Expression>>,
 }
 impl Call {
     /// Returns all variable identifiers referenced.
     pub fn idents(&self) -> Vec<&Ident> {
-        self.input.idents()
+        if let Some(i) = self.input {
+            i.idents()
+        }
+        else {
+            Vec::new()
+        }
     }
     pub fn uses(&self, ident: &Ident) -> bool {
         self.input.contains(ident)
@@ -52,7 +58,7 @@ impl Call {
 }
 impl fmt::Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {}", self.ident.to_string().yellow(), self.input)
+        write!(f, "{}{}:{}", if self.rt { "rt ".purple().to_string() } else { String::new() }, self.ident.to_string().yellow(), if let Some(s) = self.input { s.to_string() } else {String::new()})
     }
 }
 
@@ -119,7 +125,7 @@ impl fmt::Display for Ident {
             // Function inputs/outputs
             "in" | "out" => write!(f, "{}", self.0.truecolor(255, 165, 0)),
             // Intrinsics
-            "add" | "sub" | "mul" | "div" => write!(f, "{}", self.0.green()),
+            "add" | "sub" | "mul" | "div" | "read" => write!(f, "{}", self.0.green()),
             _ => write!(f, "{}", self.0),
         }
     }
@@ -171,8 +177,9 @@ impl Expression {
             Self::Literal(_) => false,
             Self::Ident(inner_ident) if inner_ident == ident => true,
             Self::Call(Call {
+                rt: _,
                 ident: _,
-                input: inner_input,
+                input: Some(inner_input),
             }) if inner_input.contains(ident) => true,
             Self::Unknown(_) => false,
             Self::Array(Array(array))

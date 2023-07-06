@@ -65,9 +65,9 @@ peg::parser!(pub grammar parser() for str {
     rule statement_type() -> StatementType
         = i:if_rule() { StatementType::If(i) }
             / l:loop() { StatementType::Loop(l) }
+            / c:call() { StatementType::Call(c) }
             / a:assignment() { StatementType::Assign(a) }
             / f:function() { StatementType::Function(f) }
-            / c:call() { StatementType::Call(c) }
             / b:break() { StatementType::Break(b) }
 
     rule if_rule() -> If = "if" _ cond:expression() { If { cond } }
@@ -89,7 +89,7 @@ peg::parser!(pub grammar parser() for str {
 
     rule unknown() -> Unknown = "?" { Unknown }
     rule call() -> Call
-        = ident:identifier() _ input:expression() { Call { ident, input: Box::new(input) } }
+        = rt:("rt" _)? ident:identifier() ":" input:(expression())? { Call { rt: rt.is_some(), ident, input: input.map(Box::new) } }
     rule array() -> Array
         = "{" args:((v:expression() "," {v})*) "}" { Array(args) }
     rule index() -> Index
@@ -119,27 +119,27 @@ y = 2
 y = x
 a = 2
 b = 3
-c = add {a,b,}
+c = add:{a,b,}
 d = ?
 if 1
-    c = add {d,c,}
+    c = add:{d,c,}
     d = 4
 a = d
 loop
-    a = add {a,c,}
+    a = add:{a,c,}
     if 1
         break
 def triple_add
-    one = add {in[0],in[1],}
-    two = add {one,in[2],}
+    one = add:{in[0],in[1],}
+    two = add:{one,in[2],}
     if 0
-        two = triple_add {two,two,two,}
+        two = triple_add:{two,two,two,}
     out = two
-a = triple_add {a,1,b,}
-e = add {c,d,}
-e = add {e,a,}
+a = triple_add:{a,1,b,}
+e = add:{c,d,}
+e = add:{e,a,}
 x = ?
-e = add {x,e,}
+e = add:{x,e,}
 if 1
     out = e
 out = 1

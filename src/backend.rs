@@ -1,24 +1,34 @@
-// unsafe fn tree_gen(tree: SyntaxTree<Statement>) {
-//     let module_name = CString::new("my_module").unwrap();
-//     let module = LLVMModuleCreateWithName(module_name.as_c_str().as_ptr());
-//     let mut param_types = [];
-//     let ret_type = LLVMFunctionType(LLVMInt32Type(), param_types.as_mut_ptr(), 0, 0);
+use llvm_sys::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction;
+use llvm_sys::bit_writer::LLVMWriteBitcodeToFile;
+use llvm_sys::core::LLVMBuildRet;
+use llvm_sys::execution_engine::LLVMGetFunctionAddress;
+use llvm_sys::target::{LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter};
+use llvm_sys::{
+    analysis::LLVMVerifyModule,
+    core::{
+        LLVMAddFunction, LLVMAppendBasicBlock, LLVMBuildAdd, LLVMCreateBuilder,
+        LLVMDisposeMessage, LLVMFunctionType, LLVMGetParam, LLVMInt32Type,
+        LLVMModuleCreateWithName, LLVMPositionBuilderAtEnd,
+    },
+    execution_engine::{LLVMCreateExecutionEngineForModule, LLVMLinkInMCJIT},
+    target::LLVM_InitializeNativeTarget,
+};
+use std::ffi::{c_int, CStr, CString};
+use linked_syntax_tree::SyntaxTree;
+use super::frontend::*;
 
-//     let function_name = CString::new("main").unwrap();
-//     let main = LLVMAddFunction(module, function_name.as_c_str().as_ptr(), ret_type);
+use iced_x86::code_asm::*;
 
-//     let cursor = tree.cursor();
-//     let mut stack = vec![cursor];
-//     // while let Some(current) = stack.pop() {
-//     //     if let Some(child)
-//     // }
-//     let block_name = CString::new("entry").unwrap();
-//     let entry = LLVMAppendBasicBlock(sum, block_name.as_c_str().as_ptr());
-// }
+fn tree_gen(tree: SyntaxTree<Statement>) {
+    // let asm = std::fs::OpenOptions::new().create(true).truncate(true).write(true).open("program.s");
+    let mut assembler = ice_x86::code_asm::CodeAssembler::new(64);
+    assembler.push(iced_x86::code_asm::rcx);
+}
 
 #[cfg(test)]
 mod tests {
     use llvm_sys::analysis::LLVMVerifierFailureAction::LLVMAbortProcessAction;
+    use llvm_sys::bit_writer::LLVMWriteBitcodeToFile;
     use llvm_sys::core::LLVMBuildRet;
     use llvm_sys::execution_engine::LLVMGetFunctionAddress;
     use llvm_sys::target::{LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter};
@@ -42,10 +52,15 @@ mod tests {
             let module = LLVMModuleCreateWithName(module_name.as_c_str().as_ptr());
 
             let mut param_types = [LLVMInt32Type(), LLVMInt32Type()];
-            let ret_type = LLVMFunctionType(LLVMInt32Type(), param_types.as_mut_ptr(), 2, 0);
+            let sum_return_type = LLVMFunctionType(LLVMInt32Type(), param_types.as_mut_ptr(), 2, 0);
 
             let function_name = CString::new("sum").unwrap();
-            let sum = LLVMAddFunction(module, function_name.as_c_str().as_ptr(), ret_type);
+            let sum = LLVMAddFunction(module, function_name.as_c_str().as_ptr(), sum_return_type);
+            
+            let temp = {
+
+            };
+            
             let block_name = CString::new("entry").unwrap();
             let entry = LLVMAppendBasicBlock(sum, block_name.as_c_str().as_ptr());
 
@@ -103,6 +118,11 @@ mod tests {
             let res = f(1i32, 2i32);
             println!("{}", res);
             assert_eq!(res, 3);
+
+            let result_name = CString::new("sum.bc").unwrap();
+            if LLVMWriteBitcodeToFile(module, result_name.as_c_str().as_ptr()) != 0 {
+                println!("error writing bitcode to file");
+            }
 
             // let res = LLVMRunFunction(engine, sum, 2, args.as_mut_ptr());
             // println!("{}", LLVMGenericValueToInt(res, 0));

@@ -96,6 +96,7 @@ pub fn evaluate_tree(tree: &mut SyntaxTree<Statement>) {
                         }
                     }
                     Expression::Call(Call {
+                        rt,
                         ident: rhs_ident,
                         input,
                     }) if rhs_ident.0 == "add" => {
@@ -159,7 +160,7 @@ fn evaluate_assign(cursor: &mut CursorMut<Statement>) {
     // info!("assign: {current}");
     match &mut current.expr {
         Expression::Call(call) => match call {
-            Call { ident, input } if ident.0 == "add" => {
+            Call { rt, ident, input: Some(input) } if ident.0 == "add" => {
                 if let Expression::Array(Array(array)) = &mut **input && let Some([lhs,rhs]) = array.get_mut(..) {
                     match (&lhs,&rhs) {
                         (Expression::Literal(Literal(a)), Expression::Literal(Literal(b))) => {
