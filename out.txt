@@ -1,0 +1,22 @@
+lhs_ascii = [35mrt [0m[33m[32mread[0m[33m[0m:{[34m0[0m,[34m4[0m,}
+lhs = [33m[32msub[0m[33m[0m:{x,{[34m48[0m,[34m48[0m,[34m48[0m,[34m48[0m,},}
+op = [35mrt [0m[33m[32mread[0m[33m[0m:{[34m0[0m,[34m1[0m,}
+rhs_ascii = [35mrt [0m[33m[32mread[0m[33m[0m:{[34m0[0m,[34m4[0m,}
+rhs = [33m[32msub[0m[33m[0m:{x,{[34m48[0m,[34m48[0m,[34m48[0m,[34m48[0m,},}
+[35mif[0m [33meq[0m:{op,[34m0[0m,}
+    res = [33m[32madd[0m[33m[0m:{lhs,rhs,}
+    [33m[32mwrite[0m[33m[0m:{[34m1[0m,res,}
+    [33m[32mexit[0m[33m[0m:[34m0[0m
+[35mif[0m [33meq[0m:{op,[34m1[0m,}
+    res = [33m[32msub[0m[33m[0m:{lhs,rhs,}
+    [33m[32mwrite[0m[33m[0m:{[34m1[0m,res,}
+    [33m[32mexit[0m[33m[0m:[34m0[0m
+[35mif[0m [33meq[0m:{op,[34m2[0m,}
+    res = [33m[32mmul[0m[33m[0m:{lhs,rhs,}
+    [33m[32mwrite[0m[33m[0m:{[34m1[0m,res,}
+    [33m[32mexit[0m[33m[0m:[34m0[0m
+[35mif[0m [33meq[0m:{op,[34m3[0m,}
+    res = [33m[32mdiv[0m[33m[0m:{lhs,rhs,}
+    [33m[32mwrite[0m[33m[0m:{[34m1[0m,res,}
+    [33m[32mexit[0m[33m[0m:[34m0[0m
+[33m[32mexit[0m[33m[0m:[34m1[0m

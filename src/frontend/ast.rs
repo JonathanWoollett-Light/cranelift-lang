@@ -45,20 +45,37 @@ pub struct Call {
 impl Call {
     /// Returns all variable identifiers referenced.
     pub fn idents(&self) -> Vec<&Ident> {
-        if let Some(i) = self.input {
+        if let Some(i) = &self.input {
             i.idents()
-        }
-        else {
+        } else {
             Vec::new()
         }
     }
     pub fn uses(&self, ident: &Ident) -> bool {
-        self.input.contains(ident)
+        if let Some(input) = &self.input {
+            input.contains(ident)
+        } else {
+            false
+        }
     }
 }
 impl fmt::Display for Call {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}{}:{}", if self.rt { "rt ".purple().to_string() } else { String::new() }, self.ident.to_string().yellow(), if let Some(s) = self.input { s.to_string() } else {String::new()})
+        write!(
+            f,
+            "{}{}:{}",
+            if self.rt {
+                "rt ".purple().to_string()
+            } else {
+                String::new()
+            },
+            self.ident.to_string().yellow(),
+            if let Some(s) = &self.input {
+                s.to_string()
+            } else {
+                String::new()
+            }
+        )
     }
 }
 
@@ -125,7 +142,9 @@ impl fmt::Display for Ident {
             // Function inputs/outputs
             "in" | "out" => write!(f, "{}", self.0.truecolor(255, 165, 0)),
             // Intrinsics
-            "add" | "sub" | "mul" | "div" | "read" => write!(f, "{}", self.0.green()),
+            "add" | "sub" | "mul" | "div" | "eq" | "index" => write!(f, "{}", self.0.truecolor(100, 100, 100)),
+            // Syscalls
+            "read" | "write" | "exit" | "memfd_create" | "mmap" => write!(f, "{}", self.0.green()),
             _ => write!(f, "{}", self.0),
         }
     }

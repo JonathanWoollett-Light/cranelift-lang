@@ -1,4 +1,5 @@
 #![feature(let_chains)]
+#![feature(box_patterns)]
 /// The backend that converts the AST to crane lift.
 pub mod backend;
 /// The frontend that converts text to the AST.
